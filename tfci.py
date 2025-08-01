@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+TFCI (Time Forecasting CI) - 로컬 실행용
+"""
+
 import sys
 import traceback
 from config.config import load_config

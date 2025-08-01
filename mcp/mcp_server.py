@@ -7,158 +7,112 @@ import json
 import sys
 import traceback
 from typing import Any, Dict, List, Optional
-import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.config import load_config
 from core.predictor import Predictor
 
-
 class MCPServer:
     def __init__(self):
-        self.config = None
         self.predictor = None
-        
-    def initialize(self, config_path: str = "config.yaml"):
+        self.config = None
+
+    def initialize(self, config_path: str = "config.yaml") -> Dict[str, Any]:
         """서버 초기화"""
         try:
+            print(f"[INFO] MCP 서버 초기화: {config_path}")
             self.config = load_config(config_path)
             self.predictor = Predictor(self.config)
-            return {"status": "success", "message": "MCP 서버가 초기화되었습니다."}
+            return {"status": "success", "message": "MCP 서버 초기화 완료"}
         except Exception as e:
-            return {"status": "error", "message": f"초기화 실패: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    def predict(self, features: Dict[str, Any], prediction_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """시계열 예측 수행"""
+    def predict(self, config_path: str) -> Dict[str, Any]:
+        """config 파일 경로를 받아서 예측 실행"""
         try:
-            if not self.predictor:
-                return {"status": "error", "message": "서버가 초기화되지 않았습니다."}
+            print(f"[INFO] MCP 예측 시작: {config_path}")
             
-            # 예측 설정 병합
-            if prediction_config:
-                merged_config = self.config.copy()
-                merged_config["prediction"].update(prediction_config)
-            else:
-                merged_config = self.config
+            # config 파일 로드
+            config = load_config(config_path)
             
             # 예측 실행
-            result = self.predictor.run_with_custom_config(merged_config, features)
+            predictor = Predictor(config)
+            result = predictor.run()
             
             return {
-                "status": "success",
-                "predictions": result,
-                "message": "예측이 완료되었습니다."
+                "status": "success", 
+                "result": result,
+                "config_used": config_path
             }
-            
         except Exception as e:
-            return {"status": "error", "message": f"예측 실패: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
     def get_config(self) -> Dict[str, Any]:
-        """현재 설정 반환"""
-        if not self.config:
-            return {"status": "error", "message": "서버가 초기화되지 않았습니다."}
-        
-        return {
-            "status": "success",
-            "config": self.config
-        }
+        """현재 설정 조회"""
+        return {"config": self.config}
 
     def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """설정 업데이트"""
-        try:
-            self.config = new_config
-            self.predictor = Predictor(self.config)
-            return {"status": "success", "message": "설정이 업데이트되었습니다."}
-        except Exception as e:
-            return {"status": "error", "message": f"설정 업데이트 실패: {str(e)}"}
-
+        self.config = new_config
+        return {"status": "success", "message": "설정 업데이트 완료"}
 
 def handle_request(server: MCPServer, request: Dict[str, Any]) -> Dict[str, Any]:
     """JSON-RPC 요청 처리"""
-    method = request.get("method")
-    params = request.get("params", {})
-    request_id = request.get("id")
-    
     try:
+        method = request.get("method")
+        params = request.get("params", {})
+        request_id = request.get("id")
+
         if method == "initialize":
             config_path = params.get("config_path", "config.yaml")
             result = server.initialize(config_path)
         elif method == "predict":
-            features = params.get("features", {})
-            prediction_config = params.get("prediction_config")
-            result = server.predict(features, prediction_config)
+            config_path = params.get("config_path")
+            if not config_path:
+                return {"error": {"code": -32602, "message": "config_path is required"}}
+            result = server.predict(config_path)
         elif method == "get_config":
             result = server.get_config()
         elif method == "update_config":
-            new_config = params.get("config", {})
-            result = server.update_config(new_config)
+            result = server.update_config(params.get("config", {}))
         else:
-            result = {"status": "error", "message": f"지원하지 않는 메서드: {method}"}
-        
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": result
-        }
-        
-    except Exception as e:
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {
-                "code": -32603,
-                "message": f"내부 오류: {str(e)}"
-            }
-        }
+            return {"error": {"code": -32601, "message": f"Method {method} not found"}}
 
+        return {"jsonrpc": "2.0", "result": result, "id": request_id}
+
+    except Exception as e:
+        return {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}, "id": request.get("id")}
 
 def main():
-    """MCP 서버 메인 함수"""
-    server = MCPServer()
-    
     print("MCP Time Series Prediction Server 시작")
     print("JSON-RPC 요청을 stdin으로 받습니다.")
     print("종료하려면 Ctrl+C를 누르세요.")
-    
+    print("-" * 50)
+
+    server = MCPServer()
+
     try:
-        for line in sys.stdin:
+        while True:
+            line = input()
+            if not line:
+                continue
+
             try:
-                request = json.loads(line.strip())
+                request = json.loads(line)
                 response = handle_request(server, request)
                 print(json.dumps(response, ensure_ascii=False))
                 sys.stdout.flush()
             except json.JSONDecodeError:
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32700,
-                        "message": "JSON 파싱 오류"
-                    }
-                }
-                print(json.dumps(error_response, ensure_ascii=False))
+                print(json.dumps({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}, "id": None}))
                 sys.stdout.flush()
-            except Exception as e:
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32603,
-                        "message": f"서버 오류: {str(e)}"
-                    }
-                }
-                print(json.dumps(error_response, ensure_ascii=False))
-                sys.stdout.flush()
-                
+
     except KeyboardInterrupt:
         print("\n[INFO] MCP 서버가 종료되었습니다.")
         sys.exit(0)
     except Exception as e:
-        print(f"[ERROR] MCP 서버 오류: {e}")
-        traceback.print_exc()
+        print(f"[ERROR] 서버 오류: {e}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main() 

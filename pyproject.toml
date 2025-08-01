@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tfci"
+version = "1.0.0"
+description = "Time Forecasting CI - Simple Time Series Prediction Library"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "rosci671233", email = "rosci671233@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.20.0",
+    "prophet>=1.1.0",
+    "lightgbm>=4.0.0",
+    "scikit-learn>=1.0.0",
+    "PyYAML>=6.0",
+    "ibm-db>=3.2.0",
+    "optuna>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rosci671233/tfci"
+Repository = "https://github.com/rosci671233/tfci"
+
+[project.scripts]
+tfci = "tfci:predict"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "data*", "model*", "config*"]
+
+[tool.setuptools.py-modules]
+tfci = "tfci" 
