@@ -80,13 +80,7 @@ class HTTPMCPServer:
 # 전역 서버 인스턴스 초기화
 mcp_server = HTTPMCPServer()
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """헬스 체크 엔드포인트"""
-    return jsonify({
-        "status": "healthy",
-        "service": "MCP Time Series Prediction Server"
-    })
+
 
 @app.route('/initialize', methods=['POST'])
 def initialize():
@@ -193,7 +187,6 @@ if __name__ == '__main__':
     print("HTTP MCP Time Series Prediction Server 시작")
     print("서버 주소: http://localhost:5000")
     print("API 문서:")
-    print("  GET  /health          - 헬스 체크")
     print("  POST /initialize      - 서버 초기화")
     print("  POST /predict         - 예측 실행")
     print("  GET  /config          - 설정 조회")

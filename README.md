@@ -43,12 +43,7 @@ docker build -t mcp-predictor .
 docker run -it --rm -p 8080:8080 mcp-predictor
 ```
 
-### 3. 테스트
 
-```bash
-# MCP 서버 테스트
-python examples/test_mcp_client.py
-```
 
 ## 설정 파일 (config/mcp_config.yaml)
 
@@ -125,9 +120,7 @@ mcp-predictor/
 │   ├── __init__.py
 │   ├── http_mcp_server.py  # HTTP API 서버
 │   └── run_mcp_server.py   # 서버 실행 스크립트
-├── examples/           # 예제 및 테스트
-│   ├── __init__.py
-│   └── test_mcp_client.py  # MCP 클라이언트 테스트
+
 ├── scripts/            # 배포 및 관리 스크립트
 │   ├── __init__.py
 │   └── deploy.sh       # 배포 스크립트
@@ -162,7 +155,6 @@ docker run -p 8080:8080 your-username/mcp-predictor
 
 ## 라이선스
 
-MIT License
 
 ## 기여
 

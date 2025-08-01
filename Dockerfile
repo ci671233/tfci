@@ -20,7 +20,6 @@ COPY . .
 RUN chmod +x mcp/mcp_server.py
 RUN chmod +x servers/http_mcp_server.py
 RUN chmod +x servers/run_mcp_server.py
-RUN chmod +x examples/test_mcp_client.py
 RUN chmod +x scripts/deploy.sh
 
 # 포트 노출
