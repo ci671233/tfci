@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mcp_config.yaml:/app/mcp_config.yaml:ro
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: python mcp/mcp_server.py 

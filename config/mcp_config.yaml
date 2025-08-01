@@ -1,0 +1,33 @@
+input:
+  source_type: "db"       # db | csv
+  db_type: "db2"          # db2 | postgresql | mongodb (source_type이 db일 때만 필수)
+  connection:
+    host: "YOUR_HOST"
+    port: 25010
+    user: "YOUR_USER"
+    password: "YOUR_PASSWORD"
+    database: "YOUR_DATABASE"
+  table: "YOUR_TABLE"         # db 타입이면 테이블명
+  # csv_path: "./data/input.csv"  # csv 타입이면 경로
+  features: ["RGN_CD", "CRTR_YR"]
+  target: ["GRDR1_STDNT_NOPE", "GRDR2_STDNT_NOPE",
+           "GRDR3_STDNT_NOPE", "GRDR4_STDNT_NOPE",
+           "GRDR5_STDNT_NOPE", "GRDR6_STDNT_NOPE"]
+
+prediction:
+  task_type: "timeseries"
+  future_steps: 5       # 5년 후 예측
+  time_col: "CRTR_YR"   # 시계열 기준 컬럼
+  group_key: "RGN_CD"   # 지역별로 개별 시계열 모델
+
+output:
+  source_type: "csv"       # db | csv
+  # db_type: "db2"          # db2 | postgresql | mongodb (source_type이 db일 때만 필수)
+  # connection:
+  #   host: "YOUR_HOST"
+  #   port: 25010
+  #   user: "YOUR_USER"
+  #   password: "YOUR_PASSWORD"
+  #   database: "YOUR_DATABASE"
+  # table: "YOUR_OUTPUT_TABLE" # db 타입이면 테이블명
+  csv_path: "./data/output.csv" # csv 타입이면 경로 
