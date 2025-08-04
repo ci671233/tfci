@@ -9,7 +9,19 @@ import sys
 from typing import Dict, Any
 
 class TFCIMCPClient:
-    def __init__(self, server_script: str = "mcp/mcp_server.py"):
+    def __init__(self, server_script: str = None):
+        """
+        TFCI MCP 클라이언트 초기화
+        
+        Args:
+            server_script (str, optional): 서버 스크립트 경로. None이면 기본 경로 사용
+        """
+        if server_script is None:
+            # 패키지 내부의 서버 스크립트 경로
+            import os
+            package_dir = os.path.dirname(os.path.abspath(__file__))
+            server_script = os.path.join(os.path.dirname(package_dir), "mcp", "mcp_server.py")
+        
         self.server_script = server_script
         self.process = None
 
@@ -66,42 +78,13 @@ class TFCIMCPClient:
             return {"error": f"요청 전송 실패: {e}"}
 
     def predict(self, config_path: str) -> Dict[str, Any]:
-        """YAML 설정으로 예측 실행"""
-        return self.send_request("predict", {"config_path": config_path})
-
-def main():
-    """MCP 클라이언트 테스트"""
-    print("TFCI MCP 클라이언트 테스트")
-    print("=" * 50)
-
-    client = TFCIMCPClient()
-
-    try:
-        # 서버 시작
-        if not client.start_server():
-            return
-
-        # 예측 실행 (사용자가 config 파일을 지정할 수 있도록)
-        import sys
-        if len(sys.argv) > 1:
-            config_file = sys.argv[1]
-        else:
-            config_file = input("예측할 config 파일을 입력하세요 (예: T_PBAF3202S.yaml): ").strip()
+        """
+        YAML 설정으로 예측 실행
         
-        if not config_file:
-            print("[ERROR] config 파일이 지정되지 않았습니다.")
-            return
+        Args:
+            config_path (str): 설정 파일 경로
             
-        print(f"\n예측 실행: {config_file}")
-        prediction = client.predict(config_file)
-        print(json.dumps(prediction, indent=2, ensure_ascii=False))
-
-    except KeyboardInterrupt:
-        print("\n[INFO] 사용자에 의해 중단되었습니다.")
-    except Exception as e:
-        print(f"[ERROR] 클라이언트 오류: {e}")
-    finally:
-        client.stop_server()
-
-if __name__ == "__main__":
-    main() 
+        Returns:
+            Dict[str, Any]: 예측 결과
+        """
+        return self.send_request("predict", {"config_path": config_path}) 
