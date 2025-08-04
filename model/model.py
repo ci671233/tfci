@@ -421,9 +421,14 @@ class Model:
         # 멀티프로세싱 실행 (CI/CD 환경에서는 단일 프로세스 사용)
         results = []
         
-        # CI/CD 환경 감지 (환경변수로 확인)
+        # CI/CD 환경 감지 및 안전한 멀티프로세싱
         import os
         is_ci = os.getenv('CI', 'false').lower() == 'true'
+        
+        # 안전한 멀티프로세싱을 위한 조건 추가
+        import multiprocessing as mp
+        if mp.get_start_method(allow_none=True) != 'fork':
+            mp.set_start_method('fork', force=True)
         
         if is_ci or len(tasks) <= 1:
             # CI/CD 환경이거나 태스크가 1개 이하인 경우 단일 프로세스
@@ -432,14 +437,25 @@ class Model:
                 result = process_single_task(task)
                 results.append(result)
         else:
-            # 일반 환경에서는 멀티프로세싱 사용
+            # 일반 환경에서는 멀티프로세싱 사용 (안전한 방식)
             n_processes = max(1, min(cpu_count() - 1, len(tasks)))
             print(f"[INFO] 멀티프로세싱 모드로 실행 (프로세스 수: {n_processes})")
             
-            with Pool(processes=n_processes) as pool:
-                for result in tqdm(pool.imap_unordered(process_single_task, tasks),
-                                 total=len(tasks), desc="예측 진행", unit="task"):
-                    results.append(result)
+            try:
+                with Pool(processes=n_processes) as pool:
+                    for result in tqdm(pool.imap_unordered(process_single_task, tasks),
+                                     total=len(tasks), desc="예측 진행", unit="task"):
+                        results.append(result)
+            except RuntimeError as e:
+                if "bootstrapping phase" in str(e):
+                    print("[WARNING] 멀티프로세싱 오류 발생, 단일 프로세스로 전환")
+                    # 멀티프로세싱 실패 시 단일 프로세스로 전환
+                    results = []
+                    for task in tqdm(tasks, desc="예측 진행 (단일 프로세스)", unit="task"):
+                        result = process_single_task(task)
+                        results.append(result)
+                else:
+                    raise e
 
         if not results:
             print("[WARNING] 예측 결과가 없습니다.")
