@@ -106,6 +106,7 @@ output:
 tfci/
 ├── tfci/              # 메인 라이브러리
 │   └── __init__.py
+│   └── pyproject.toml
 ├── tfci_mcp/          # MCP 패키지
 │   ├── __init__.py
 │   ├── client.py
@@ -116,8 +117,7 @@ tfci/
 ├── config/            # 설정 관리
 ├── core/              # 핵심 로직
 ├── data/              # 데이터 처리
-├── model/             # 모델 관련
-└── pyproject.toml     # tfci 패키지 설정
+└── model/             # 모델 관련
 ```
 
 ## 의존성
