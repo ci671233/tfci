@@ -1,42 +1,36 @@
 #!/usr/bin/env python3
 """
-MCP Predictor - 진짜 간단한 시계열 예측 라이브러리
+TFCI (Time Forecasting CI) - MCP 서버 배포용
+
+Example:
+python mcp_tfci.py --config config1.yaml
+python mcp_tfci.py --config config2.yaml  
+python mcp_tfci.py --config config3.yaml
 """
 
 import sys
-import os
+import traceback
+import argparse
+from config.config import load_config
 from core.predictor import Predictor
 
-def predict(config_path: str = "config.yaml"):
-    """
-    간단한 예측 함수
+def main():
+    """메인 함수 - 명령행 인자 처리"""
+    parser = argparse.ArgumentParser(description="TFCI MCP 서버")
+    parser.add_argument("--config", default="config.yaml", 
+                       help="설정 파일 경로 (기본값: config.yaml)")
     
-    Args:
-        config_path (str): 설정 파일 경로 (기본값: config.yaml)
+    args = parser.parse_args()
     
-    Returns:
-        dict: 예측 결과
-    """
     try:
-        # 설정 파일 로드
-        from config.config import load_config
-        config = load_config(config_path)
-        
-        # 예측 실행
-        predictor = Predictor(config)
-        result = predictor.run()
-        
-        return {"status": "success", "result": result}
-        
+        config = load_config(args.config)
+        pipeline = Predictor(config)
+        pipeline.run()
+        print(f"[SUCCESS] 예측 완료: {args.config}")
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[ERROR] 예측 실패: {e}")
+        traceback.print_exc()
+        sys.exit(1)
 
-# 사용 예시
 if __name__ == "__main__":
-    import sys
-    
-    # 명령행 인수로 설정 파일 받기
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
-    
-    result = predict(config_file)
-    print(f"예측 결과: {result}") 
+    main() 

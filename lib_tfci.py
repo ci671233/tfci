@@ -1,46 +1,37 @@
 #!/usr/bin/env python3
 """
-TFCI (Time Forecasting CI) - 라이브러리 배포용
+TFCI (Time Forecasting CI) - PyPI 배포용 라이브러리
 """
 
 import sys
-import os
+import traceback
+from config.config import load_config
 from core.predictor import Predictor
 
 def predict(config_path: str = "config.yaml"):
     """
-    간단한 예측 함수
+    설정 파일을 기반으로 시계열 예측을 실행합니다.
     
     Args:
-        config_path (str): 설정 파일 경로 (기본값: config.yaml)
+        config_path (str): 설정 파일 경로 (기본값: "config.yaml")
     
-    Returns:
-        dict: 예측 결과
+    Example:
+        >>> from tfci import predict
+        >>> predict("config.yaml")
+        >>> predict("config2.yaml")
+        >>> predict("config3.yaml")
     """
     try:
-        # 설정 파일 로드
-        from config.config import load_config
         config = load_config(config_path)
-        
-        # 예측 실행
-        predictor = Predictor(config)
-        result = predictor.run()
-        
-        return {"status": "success", "result": result}
-        
+        pipeline = Predictor(config)
+        pipeline.run()
+        print(f"[SUCCESS] 예측 완료: {config_path}")
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[ERROR] 예측 실패: {e}")
+        traceback.print_exc()
 
-def main():
-    """메인 함수 - 명령행에서 실행될 때 사용"""
-    import sys
-    
-    # 명령행 인수로 설정 파일 받기
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
-    
-    result = predict(config_file)
-    print(f"예측 결과: {result}")
-
-# 사용 예시
 if __name__ == "__main__":
-    main() 
+    if len(sys.argv) > 1:
+        predict(sys.argv[1])
+    else:
+        predict() 
