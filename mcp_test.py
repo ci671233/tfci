@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 TFCI MCP 테스트 - 라이브러리처럼 사용
 """

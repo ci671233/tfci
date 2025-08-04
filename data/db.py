@@ -232,6 +232,27 @@ class Database:
                     # int 타입은 정수로 유지
                     df_clean[col] = df_clean[col].round().astype(int)
                     print(f"[INFO] {col} 컬럼 처리 완료 (int, 정수 유지)")
+                
+                # DB 스키마에 맞게 값 범위 조정 (DECIMAL(7,2) 등)
+                # 예측값이 범위를 초과할 경우 적절히 조정
+                if pd.api.types.is_float_dtype(df_clean[col].dtype):
+                    # DECIMAL(7,2) = 총 7자리, 소수점 2자리 = 최대 99999.99
+                    max_value = 99999.99
+                    min_value = -99999.99
+                    
+                    # 범위를 초과하는 값들을 조정
+                    if df_clean[col].max() > max_value or df_clean[col].min() < min_value:
+                        print(f"[WARNING] {col} 컬럼의 값이 DB 범위를 초과합니다. 조정 중...")
+                        print(f"  - 원본 범위: {df_clean[col].min():.2f} ~ {df_clean[col].max():.2f}")
+                        
+                        # 범위를 초과하는 값들을 적절히 조정
+                        df_clean[col] = df_clean[col].clip(lower=min_value, upper=max_value)
+                        
+                        print(f"  - 조정 후 범위: {df_clean[col].min():.2f} ~ {df_clean[col].max():.2f}")
+                    
+                    # 소수점 2자리로 반올림 (DECIMAL(7,2)에 맞춤)
+                    df_clean[col] = df_clean[col].round(2)
+                    print(f"[INFO] {col} 컬럼을 DB 스키마에 맞게 조정 완료 (DECIMAL(7,2) 범위)")
         
         # ✅ 2. 완전히 빈 행 제거 (이미 NaN을 0으로 채웠으므로 의미없음, 하지만 안전장치)
         before_len = len(df_clean)

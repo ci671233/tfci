@@ -1,36 +1,25 @@
 #!/usr/bin/env python3
 """
-TFCI (Time Forecasting CI) - 라이브러리용
+TFCI (Time Forecasting CI) - 시계열 예측 라이브러리
 """
 
-import sys
-import traceback
-from config.config import load_config
 from core.predictor import Predictor
+from data.data import load_config
 
-def predict(config_path: str = "config.yaml"):
+def predict(config_path: str):
     """
-    설정 파일을 기반으로 시계열 예측을 실행합니다.
+    YAML 설정 파일로 시계열 예측 실행
     
     Args:
-        config_path (str): 설정 파일 경로 (기본값: "config.yaml")
-    
-    Example:
-        >>> from tfci import predict
-        >>> predict("config.yaml")
-        >>> predict("config2.yaml")
-        >>> predict("config3.yaml")
+        config_path (str): 설정 파일 경로
+        
+    Returns:
+        bool: 예측 성공 여부
     """
-    try:
-        config = load_config(config_path)
-        pipeline = Predictor(config)
-        pipeline.run()
-        print(f"[SUCCESS] 예측 완료: {config_path}")
-    except Exception as e:
-        print(f"[ERROR] 예측 실패: {e}")
-        traceback.print_exc()
+    config = load_config(config_path)
+    predictor = Predictor(config)
+    return predictor.run()
 
-# 라이브러리 버전 정보
-__version__ = "1.0.4"
+__version__ = "1.0.6"
 __author__ = "TFCI Team"
 __email__ = "rosci671233@gmail.com" 

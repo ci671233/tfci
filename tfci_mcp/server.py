@@ -24,18 +24,32 @@ class TFCIMCPServer:
         try:
             print(f"[INFO] TFCI MCP 예측 시작: {config_path}")
             
+            # config 파일 존재 확인
+            if not os.path.exists(config_path):
+                return {
+                    "status": "error", 
+                    "message": f"Config 파일이 존재하지 않습니다: {config_path}"
+                }
+            
+            print(f"[INFO] Config 파일 로드 중: {config_path}")
             # config 파일 로드
             config = load_config(config_path)
+            print(f"[INFO] Config 로드 완료: {config}")
             
+            print(f"[INFO] Predictor 초기화 중...")
             # 예측 실행
             predictor = Predictor(config)
+            print(f"[INFO] Predictor 초기화 완료, 예측 실행 중...")
             predictor.run()
+            print(f"[INFO] 예측 실행 완료")
             
             return {
                 "status": "success", 
                 "message": f"예측 완료: {config_path}"
             }
         except Exception as e:
+            print(f"[ERROR] 예측 중 오류 발생: {e}")
+            traceback.print_exc()
             return {
                 "status": "error", 
                 "message": str(e)
