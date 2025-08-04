@@ -171,7 +171,3 @@ cython_debug/
 config.yaml
 config*.yaml
 config*.yml
-
-
-lib_test.py
-mcp_test.py

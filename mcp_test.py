@@ -12,8 +12,8 @@ client = TFCIMCPClient()
 client.start_server()
 
 # 예측 실행 (라이브러리처럼 간단하게)
-client.predict("T_PBAF3202S.yaml")
-client.predict("T_PBAF3301S.yaml")
+client.predict("config.yaml")
+client.predict("config2.yaml")
 
 # 서버 종료
 client.stop_server()

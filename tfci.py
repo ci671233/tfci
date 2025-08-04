@@ -11,7 +11,7 @@ from core.predictor import Predictor
 def main():
     try:
         # 1) config 로드
-        config = load_config("T_PBAF3101S.yaml")
+        config = load_config("config.yaml")
 
         # 2) 예측 파이프라인 실행
         pipeline = Predictor(config)
