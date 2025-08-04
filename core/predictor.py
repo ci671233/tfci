@@ -41,7 +41,11 @@ class Predictor:
         # 5) 결과 저장
         output_type = self.config["output"]["source_type"]
         if output_type == "db":
-            saver = Database(self.config["output"])
+            # 전체 설정을 전달하여 prediction 섹션 포함
+            output_config = self.config["output"].copy()
+            output_config["prediction"] = self.config.get("prediction", {})
+            output_config["target"] = self.config["input"]["target"]
+            saver = Database(output_config)
             saver.save(predictions)
         elif output_type == "csv":
             saver = Csv(self.config["output"])

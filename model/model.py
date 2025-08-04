@@ -290,16 +290,6 @@ class ModelProcessor:
         prophet_preds = prophet_model.predict(future_dates)['yhat'].values
         return prophet_preds
 
-    def _predict_lgb_sequential(self, model, group_data, features, target, future_steps, future_years):
-        """LightGBM 순차 예측 - 제거 예정"""
-        # 단순한 트렌드 기반 예측으로 대체되었으므로 이 함수는 사용하지 않음
-        return np.array([group_data[target].iloc[-1]] * future_steps)
-
-    def _apply_strong_trend(self, predictions, historical_values, future_steps):
-        """예측값에 강력한 트렌드를 적용 - 제거 예정"""
-        # 단순한 트렌드 기반 예측으로 대체되었으므로 이 함수는 사용하지 않음
-        return predictions
-
     def _calculate_model_error(self, model, *args):
         """모델 오차 계산"""
         try:
@@ -488,20 +478,28 @@ class Model:
 
         print(f"[INFO] 유효한 결과 수: {len(valid_results)}")
 
-        # 모든 지역-년도 조합 생성
-        all_regions = set()
-        all_years = set()
-        
+        # 실제 예측된 결과만 사용하여 기준 프레임 생성
+        actual_predictions = []
         for result_df in valid_results:
-            all_regions.update(result_df[group_key].unique())
-            all_years.update(result_df[time_col].dropna().unique())
+            # 예측된 데이터만 추출 (NaN이 아닌 행들)
+            target_name = result_df['_target_name'].iloc[0]
+            valid_data = result_df.dropna(subset=[target_name])
+            if len(valid_data) > 0:
+                actual_predictions.append(valid_data[[group_key, time_col, target_name]])
         
-        # 기준 프레임 생성
-        from itertools import product
-        base_combinations = list(product(sorted(all_regions), sorted(all_years)))
-        base_df = pd.DataFrame(base_combinations, columns=[group_key, time_col])
+        if not actual_predictions:
+            print("[WARNING] 유효한 예측 데이터가 없습니다.")
+            return pd.DataFrame()
         
-        print(f"[INFO] 기준 프레임 생성: {len(base_df)} rows ({len(all_regions)} regions × {len(all_years)} years)")
+        # 실제 예측된 조합들만 사용 (각 지역별로 5년 예측)
+        base_df = pd.concat(actual_predictions, ignore_index=True)
+        base_df = base_df[[group_key, time_col]].drop_duplicates()
+        
+        print(f"[INFO] 실제 예측 결과 기준 프레임 생성: {len(base_df)} rows")
+        print(f"[INFO] 예측 연도 범위: {base_df[time_col].min()} ~ {base_df[time_col].max()}")
+        print(f"[INFO] 지역별 예측 건수:")
+        region_counts = base_df.groupby(group_key).size()
+        print(region_counts.head(10))  # 상위 10개 지역만 출력
 
         # ✅ Target별로 그룹화하여 중복 제거
         target_results = {}

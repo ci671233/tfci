@@ -31,12 +31,16 @@ def predict(config_path: str = "config.yaml"):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 사용 예시
-if __name__ == "__main__":
+def main():
+    """메인 함수 - 명령행에서 실행될 때 사용"""
     import sys
     
     # 명령행 인수로 설정 파일 받기
     config_file = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
     
     result = predict(config_file)
-    print(f"예측 결과: {result}") 
+    print(f"예측 결과: {result}")
+
+# 사용 예시
+if __name__ == "__main__":
+    main() 

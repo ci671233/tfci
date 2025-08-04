@@ -64,7 +64,7 @@ class Database:
             print("[WARNING] 전처리 후 유효한 데이터가 없습니다.")
             return
 
-        # ✅ 설정에서 컬럼명 가져오기
+        # ✅ 설정에서 컬럼명 가져오기 (저장용)
         prediction_config = self.config.get('prediction', {})
         group_col = prediction_config.get('group_key')  # 예: "RGN_CD"
         time_col = prediction_config.get('time_col')    # 예: "CRTR_YR"
@@ -91,28 +91,13 @@ class Database:
             pconn = ibm_db_dbi.Connection(conn)
             cursor = pconn.cursor()
 
-            # BSC_SN 최대값 조회
-            cursor.execute(f"SELECT COALESCE(MAX(BSC_SN), 0) FROM {self.config['table']}")
-            max_sn_result = cursor.fetchone()[0] or 0
-            # decimal.Decimal을 int로 변환
-            max_sn = int(max_sn_result) if max_sn_result is not None else 0
-            print(f"[INFO] 현재 최대 BSC_SN: {max_sn}")
 
-            # 메타데이터 컬럼 추가
+
+            # 데이터 준비
             df_to_save = df_clean.copy()
-            now = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            df_to_save["BSC_SN"] = range(max_sn + 1, max_sn + 1 + len(df_to_save))
-            df_to_save["FRST_REG_DT"] = now
-            df_to_save["FRST_REG_USER_ID"] = "SYSTEM"
-            df_to_save["LAST_MDFCN_DT"] = now
-            df_to_save["LAST_MDFCN_USER_ID"] = "SYSTEM"
-            df_to_save["DEL_YN"] = "N"
-
-            # 컬럼 순서 정리
-            meta_cols = ["BSC_SN", "FRST_REG_DT", "FRST_REG_USER_ID", "LAST_MDFCN_DT", "LAST_MDFCN_USER_ID", "DEL_YN"]
-            data_cols = [col for col in df_to_save.columns if col not in meta_cols]
-            final_cols = ["BSC_SN"] + data_cols + meta_cols[1:]
+            # 컬럼 순서 정리 (메타데이터 없이)
+            final_cols = list(df_to_save.columns)
             
             df_to_save = df_to_save[final_cols]
 
@@ -140,19 +125,21 @@ class Database:
                 
                 # ✅ 데이터 타입 최종 검증 및 변환 (동적 처리)
                 batch_tuples = []
+                target_cols = self.config.get('target', [])
+                if isinstance(target_cols, str):
+                    target_cols = [target_cols]
+                
                 for _, row in batch_df.iterrows():
                     row_tuple = []
                     for col in final_cols:
                         val = row[col]
                         if pd.isna(val):
                             row_tuple.append(None)
-                        elif col == "BSC_SN":
-                            row_tuple.append(int(val))
                         elif col in [group_col, time_col]:  # ✅ 동적 컬럼명 사용
                             row_tuple.append(str(val))
-                        elif "STDNT_NOPE" in col:  # target 컬럼들
+                        elif col in target_cols:  # target 컬럼들 (설정에서 가져옴)
                             row_tuple.append(float(val))
-                        else:  # 메타데이터 컬럼들
+                        else:  # 기타 컬럼들
                             row_tuple.append(str(val))
                     batch_tuples.append(tuple(row_tuple))
                 
@@ -162,7 +149,6 @@ class Database:
             
             pconn.commit()
             print(f"[SUCCESS] DB2에 총 {total_saved}건 저장 완료!")
-            print(f"          BSC_SN 범위: {max_sn+1} ~ {max_sn+total_saved}")
 
         except Exception as e:
             if pconn:
@@ -206,18 +192,22 @@ class Database:
         print(f"  - Columns: {list(df_clean.columns)}")
         print(f"  - NaN counts:\n{df_clean.isnull().sum()}")
         
-        # ✅ 1. 완전히 빈 행 제거
-        before_len = len(df_clean)
-        target_cols = [col for col in df_clean.columns if "STDNT_NOPE" in col]
-        df_clean = df_clean.dropna(subset=target_cols, how='all')
-        print(f"[INFO] 완전 빈 행 제거: {before_len} → {len(df_clean)} rows")
+        # ✅ 1. target 컬럼들의 NaN 값을 0으로 채우기 (예측 결과 처리)
+        target_cols = self.config.get('target', [])
+        if isinstance(target_cols, str):
+            target_cols = [target_cols]
         
-        # ✅ 2. 숫자형 컬럼 처리 (target 컬럼들)
         for col in target_cols:
             if col in df_clean.columns:
                 df_clean[col] = df_clean[col].fillna(0.0)
                 df_clean[col] = df_clean[col].clip(lower=0.0)
                 df_clean[col] = df_clean[col].round(2)
+                print(f"[INFO] {col} 컬럼 처리 완료 (NaN → 0.0)")
+        
+        # ✅ 2. 완전히 빈 행 제거 (이미 NaN을 0으로 채웠으므로 의미없음, 하지만 안전장치)
+        before_len = len(df_clean)
+        df_clean = df_clean.dropna(subset=target_cols, how='all')
+        print(f"[INFO] 완전 빈 행 제거: {before_len} → {len(df_clean)} rows")
         
         # ✅ 3. 동적 컬럼 처리 (컬럼명 하드코딩 제거)
         # 그룹 컬럼 처리 (예: RGN_CD, REGION_ID, AREA_CODE 등 어떤 이름이든)
@@ -253,75 +243,3 @@ class Database:
         print(f"  - Final columns: {list(df_clean.columns)}")
         
         return df_clean
-
-
-    # # ------------------- MySQL -------------------
-    # def _load_mysql(self):
-    #     target = self.config['target']
-    #     if isinstance(target, str):
-    #         target = [target]
-    #     query = f"SELECT {', '.join(self.config['features'] + target)} FROM {self.config['table']}"
-
-    #     conn = pymysql.connect(
-    #         host=self.config['connection']['host'],
-    #         user=self.config['connection']['user'],
-    #         password=self.config['connection']['password'],
-    #         database=self.config['connection']['database'],
-    #         port=int(self.config['connection']['port']),
-    #         charset="utf8mb4"
-    #     )
-    #     df = pd.read_sql(query, conn)
-    #     conn.close()
-    #     return df
-
-    # def _save_mysql(self, df):
-    #     conn = pymysql.connect(
-    #         host=self.config['connection']['host'],
-    #         user=self.config['connection']['user'],
-    #         password=self.config['connection']['password'],
-    #         database=self.config['connection']['database'],
-    #         port=int(self.config['connection']['port']),
-    #         charset="utf8mb4"
-    #     )
-    #     cursor = conn.cursor()
-    #     cols = list(df.columns)
-    #     sql = f"INSERT INTO {self.config['table']} ({', '.join(cols)}) VALUES ({', '.join(['%s']*len(cols))})"
-    #     data = [tuple(None if pd.isna(x) else x for x in row) for row in df.to_numpy()]
-    #     cursor.executemany(sql, data)
-    #     conn.commit()
-    #     cursor.close()
-    #     conn.close()
-    #     print(f"[INFO] MySQL에 {len(df)}건 저장 완료")
-
-    # # ------------------- MongoDB -------------------
-    # def _load_mongo(self):
-    #     client = MongoClient(
-    #         host=self.config['connection']['host'],
-    #         port=int(self.config['connection']['port']),
-    #         username=self.config['connection']['user'],
-    #         password=self.config['connection']['password'],
-    #         authSource=self.config['connection']['database']
-    #     )
-    #     db = client[self.config['connection']['database']]
-    #     target = self.config['target']
-    #     if isinstance(target, str):
-    #         target = [target]
-    #     projection = {col: 1 for col in self.config['features'] + target}
-    #     data = list(db[self.config['table']].find({}, projection))
-    #     client.close()
-    #     return pd.DataFrame(data)
-
-    # def _save_mongo(self, df):
-    #     client = MongoClient(
-    #         host=self.config['connection']['host'],
-    #         port=int(self.config['connection']['port']),
-    #         username=self.config['connection']['user'],
-    #         password=self.config['connection']['password'],
-    #         authSource=self.config['connection']['database']
-    #     )
-    #     db = client[self.config['connection']['database']]
-    #     data = df.to_dict(orient="records")
-    #     if data:
-    #         db[self.config['table']].insert_many(data)
-    #         print(f"[INFO] MongoDB에 {len(data)}건 저장 완료")
-    #     client.close()

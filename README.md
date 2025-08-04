@@ -37,12 +37,12 @@ input:
   source_type: "db"
   db_type: "db2"
   connection:
-    host: "192.168.106.35"
-    port: 25010
-    user: "db2inst1"
-    password: "mobigen01!"
-    database: "EOTD"
-  table: "DSTDM.T_PBAF3103S"
+    host: "host"
+    port: 1111
+    user: "user"
+    password: "pwd!"
+    database: "DBNAME"
+  table: "TABLE_NAME"
   features: ["RGN_CD", "CRTR_YR"]
   target: ["GRDR1_STDNT_NOPE", "GRDR2_STDNT_NOPE"]
 
@@ -56,12 +56,12 @@ output:
   source_type: "db"
   db_type: "db2"
   connection:
-    host: "192.168.106.35"
-    port: 25010
-    user: "db2inst1"
-    password: "mobigen01!"
-    database: "EOTD"
-  table: "DSTDM.T_PBAF3103S_FCST"
+    host: "host"
+    port: 1111
+    user: "user"
+    password: "pwd!"
+    database: "DBNAME"
+  table: "TABLE_NAME"
 ```
 
 ## 프로젝트 구조
