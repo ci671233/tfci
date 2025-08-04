@@ -22,10 +22,13 @@ jobs:
         pip install build twine
     
     - name: Build package
-      run: python -m build
+      run: |
+        cd tfci
+        python -m build
     
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
-        skip_existing: true 
+        skip_existing: true
+        packages-dir: tfci/dist/ 
