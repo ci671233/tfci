@@ -3,8 +3,10 @@
 간단한 시계열 예측 라이브러리
 
 ## 로컬 설치
+```bash
 git clone https://github.com/ci671233/tfci.git
-실행 파일 - tfci.py
+python tfci.py
+```
 
 ### 기본 라이브러리 (tfci)
 ```bash
