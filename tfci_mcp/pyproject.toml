@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tfci-mcp"
-version = "1.0.1"
+version = "1.0.3"
 description = "TFCI MCP (Model Context Protocol) Client for Time Series Prediction"
 readme = "README.md"
 license = {text = "MIT"}
