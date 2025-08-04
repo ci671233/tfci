@@ -1,7 +1,14 @@
-import ibm_db
-import ibm_db_dbi
 import pandas as pd
 import numpy as np
+
+# 선택적 의존성 - DB 연결이 필요한 경우에만 import
+try:
+    import ibm_db
+    import ibm_db_dbi
+    IBM_DB_AVAILABLE = True
+except ImportError:
+    IBM_DB_AVAILABLE = False
+    print("[WARNING] ibm_db 모듈이 설치되지 않았습니다. DB 기능을 사용할 수 없습니다.")
 
 class Database:
     def __init__(self, config):
@@ -9,12 +16,18 @@ class Database:
         self.db_type = config.get("db_type", "").lower()
 
     def load(self):
+        if not IBM_DB_AVAILABLE:
+            raise ImportError("ibm_db 모듈이 설치되지 않았습니다. 'pip install ibm-db'를 실행하세요.")
+        
         if self.db_type == "db2":
             return self._load_db2()
         else:
             raise ValueError(f"지원하지 않는 DB 타입: {self.db_type}")
 
     def save(self, df):
+        if not IBM_DB_AVAILABLE:
+            raise ImportError("ibm_db 모듈이 설치되지 않았습니다. 'pip install ibm-db'를 실행하세요.")
+        
         if self.db_type == "db2":
             self._save_db2(df)
         else:
