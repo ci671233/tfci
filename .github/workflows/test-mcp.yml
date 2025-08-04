@@ -1,0 +1,52 @@
+name: Test tfci-mcp
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # tfci 패키지 먼저 설치 (의존성)
+        cd tfci
+        pip install -e . --no-deps
+        pip install pandas numpy prophet scikit-learn tqdm PyYAML requests
+        cd ..
+        # tfci-mcp 패키지 설치
+        cd tfci_mcp
+        pip install -e . --no-deps
+    
+    - name: Test tfci-mcp package import
+      run: |
+        python -c "from tfci_mcp import TFCIMCPClient, TFCIMCPServer; print('✅ tfci-mcp package import successful')"
+    
+    - name: Test MCP client functionality
+      run: |
+        python -c "
+        from tfci_mcp import TFCIMCPClient
+        client = TFCIMCPClient()
+        print('✅ MCP client creation successful')
+        "
+    
+    - name: Build tfci-mcp package
+      run: |
+        pip install build
+        cd tfci_mcp
+        python -m build 
