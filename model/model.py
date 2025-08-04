@@ -1,17 +1,14 @@
 import pandas as pd
 import numpy as np
 from prophet import Prophet
-from prophet.diagnostics import cross_validation, performance_metrics
 from sklearn.metrics import mean_squared_error
-from lightgbm import LGBMRegressor
-import optuna
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import warnings
 import random
 warnings.filterwarnings('ignore')
 
-# 랜덤 시드 설정
+# 랜덤 시드 설정 (재현성 보장)
 random.seed(42)
 np.random.seed(42)
 
@@ -24,7 +21,14 @@ def process_single_task(args):
 
 
 class ModelProcessor:
-    """모델 처리를 위한 헬퍼 클래스"""
+    """시계열 예측을 위한 모델 처리 클래스
+    
+    주요 기능:
+    - 트렌드/계절성 분석 기반 모델 선택
+    - 단순 선형 트렌드 예측 (안정적)
+    - Prophet 예측 (복잡한 패턴)
+    - 지역별 독립 예측 처리
+    """
     def __init__(self, config):
         self.config = config
 
@@ -90,19 +94,7 @@ class ModelProcessor:
             "changepoint_range": 0.8
         }
 
-    def tune_lgbm(self, X, y):
-        """LightGBM 하이퍼파라미터 튜닝 - 단순화"""
-        return {
-            "num_leaves": 10,
-            "max_depth": 5,
-            "learning_rate": 0.1,
-            "n_estimators": 50,
-            "min_child_samples": 1,
-            "min_data_in_bin": 1,
-            "min_split_gain": 0.01,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8
-        }
+
 
     def process_region_target(self, region, group_data, target, time_col, future_steps, group_key, all_data=None):
         """단일 (region, target) 처리 - 전체 데이터 참고 + 정교한 트렌드 판단"""
@@ -135,8 +127,8 @@ class ModelProcessor:
             if trend_strength > 0.05 and seasonality_strength < 0.3:
                 final_preds = self._simple_trend_based_prediction(target_values, future_steps)
             else:
-                # Prophet/LightGBM 보조적 사용
-                final_preds = self._prophet_lgbm_prediction(group_clean, target, time_col, future_steps)
+                # Prophet 보조적 사용
+                final_preds = self._prophet_prediction(group_clean, target, time_col, future_steps)
             
             # 미래 연도 계산
             last_year = int(group_clean[time_col].max())
@@ -151,8 +143,14 @@ class ModelProcessor:
             result_df['_target_name'] = target
             return result_df
 
+        except (ValueError, TypeError) as e:
+            print(f"[WARNING] {region}-{target} 데이터 타입 오류: {str(e)}")
+            return self._create_empty_result(region, future_steps, group_key, time_col, target)
+        except (KeyError, IndexError) as e:
+            print(f"[WARNING] {region}-{target} 컬럼/인덱스 오류: {str(e)}")
+            return self._create_empty_result(region, future_steps, group_key, time_col, target)
         except Exception as e:
-            print(f"[WARNING] {region}-{target} 처리 중 오류: {str(e)}")
+            print(f"[ERROR] {region}-{target} 예상치 못한 오류: {str(e)}")
             return self._create_empty_result(region, future_steps, group_key, time_col, target)
 
     def _simple_trend_based_prediction(self, historical_values, future_steps):
@@ -201,34 +199,7 @@ class ModelProcessor:
         
         return predictions
 
-    def _get_global_trend_slope(self, all_data, target):
-        """전체 데이터에서 유사한 패턴의 기울기 추정"""
-        if len(all_data) == 0:
-            return 0
-        
-        # 모든 지역의 해당 target 데이터 수집
-        all_target_values = []
-        for region_data in all_data.values():
-            if target in region_data.columns:
-                values = region_data[target].dropna()
-                if len(values) > 0:
-                    all_target_values.append(values)
-        
-        if len(all_target_values) == 0:
-            return 0
-        
-        # 전체 기울기들의 평균 계산
-        slopes = []
-        for values in all_target_values:
-            if len(values) >= 2:
-                x = np.arange(len(values))
-                slope = np.polyfit(x, values, 1)[0]
-                slopes.append(slope)
-        
-        if len(slopes) == 0:
-            return 0
-        
-        return np.mean(slopes)
+
 
     def _trend_strength(self, y):
         """트렌드 강도 계산 - 더 정교한 판단"""
@@ -266,8 +237,8 @@ class ModelProcessor:
         
         return seasonality_strength
 
-    def _prophet_lgbm_prediction(self, group_clean, target, time_col, future_steps):
-        """Prophet/LightGBM 보조적 예측 (트렌드가 불명확하거나 계절성이 강할 때만)"""
+    def _prophet_prediction(self, group_clean, target, time_col, future_steps):
+        """Prophet 보조적 예측 (트렌드가 불명확하거나 계절성이 강할 때만)"""
         # Prophet 데이터 준비
         prophet_df = pd.DataFrame({
             'ds': pd.to_datetime(group_clean[time_col].astype(int).astype(str) + '-01-01'),
@@ -360,9 +331,17 @@ class Model:
 
     def train_and_predict(self, X, y):
         """메인 학습 및 예측 함수 - 원본 데이터 타입 보존"""
-        time_col = self.config["prediction"]["time_col"]
-        group_key = self.config["prediction"]["group_key"]
-        future_steps = self.config["prediction"]["future_steps"]
+        # ✅ 설정 검증
+        prediction_config = self.config.get("prediction", {})
+        time_col = prediction_config.get("time_col")
+        group_key = prediction_config.get("group_key")
+        future_steps = prediction_config.get("future_steps")
+        
+        if not time_col or not group_key or not future_steps:
+            raise ValueError("prediction 설정에서 time_col, group_key, future_steps가 모두 필요합니다.")
+        
+        if future_steps <= 0:
+            raise ValueError("future_steps는 1 이상이어야 합니다.")
 
         print(f"[INFO] 시계열 예측 시작 - Time Col: {time_col}, Group: {group_key}")
         
@@ -373,7 +352,8 @@ class Model:
         
         # 모든 컬럼의 원본 타입 저장
         self.original_dtypes = {col: df[col].dtype for col in df.columns}
-        print(f"[INFO] 원본 데이터 타입 저장:")
+        print(f"[INFO] 원본 데이터 타입 저장 완료")
+        print(f"[DEBUG] 데이터 타입 상세:")
         for col, dtype in self.original_dtypes.items():
             print(f"  {col}: {dtype}")
         
@@ -384,6 +364,18 @@ class Model:
         
         if len(df) == 0:
             raise ValueError(f"시간 컬럼 '{time_col}'을 숫자형으로 변환할 수 없습니다.")
+        
+        # ✅ 데이터 검증
+        if group_key not in df.columns:
+            raise ValueError(f"그룹 키 '{group_key}'가 데이터에 존재하지 않습니다.")
+        
+        if time_col not in df.columns:
+            raise ValueError(f"시간 컬럼 '{time_col}'이 데이터에 존재하지 않습니다.")
+        
+        # 타겟 컬럼 검증
+        missing_targets = [col for col in y.columns if col not in df.columns]
+        if missing_targets:
+            raise ValueError(f"타겟 컬럼이 데이터에 존재하지 않습니다: {missing_targets}")
 
         # 태스크 생성
         tasks = []
@@ -453,11 +445,8 @@ class Model:
                         
                 except Exception as e:
                     print(f"  [WARNING] {col} 타입 복원 실패: {e}")
-                    # ✅ 안전한 기본값 처리 (target 컬럼 패턴으로 판단)
-                    if 'STDNT_NOPE' in col or any(target_pattern in col for target_pattern in ['_CNT', '_NUM', '_COUNT']):
-                        df_restored[col] = df_restored[col].fillna(0).round().astype('Int64')
-                    else:
-                        df_restored[col] = df_restored[col].astype(str)
+                    # ✅ 안전한 기본값 처리 - 문자열로 변환
+                    df_restored[col] = df_restored[col].astype(str)
         
         return df_restored
 
