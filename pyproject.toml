@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tfci"
-version = "1.0.2"
+version = "1.0.3"
 description = "Time Forecasting CI - 간단한 시계열 예측 라이브러리"
 readme = "README.md"
 license = {text = "MIT"}

@@ -138,7 +138,11 @@ class Database:
                         elif col in [group_col, time_col]:  # ✅ 동적 컬럼명 사용
                             row_tuple.append(str(val))
                         elif col in target_cols:  # target 컬럼들 (설정에서 가져옴)
-                            row_tuple.append(float(val))
+                            # 소수점 정밀도 보존
+                            if pd.isna(val):
+                                row_tuple.append(None)
+                            else:
+                                row_tuple.append(float(val))
                         else:  # 기타 컬럼들
                             row_tuple.append(str(val))
                     batch_tuples.append(tuple(row_tuple))
@@ -199,10 +203,22 @@ class Database:
         
         for col in target_cols:
             if col in df_clean.columns:
+                # 원본 데이터 타입 확인
+                original_dtype = df_clean[col].dtype
+                print(f"[INFO] {col} 원본 타입: {original_dtype}")
+                
                 df_clean[col] = df_clean[col].fillna(0.0)
                 df_clean[col] = df_clean[col].clip(lower=0.0)
-                df_clean[col] = df_clean[col].round(2)
-                print(f"[INFO] {col} 컬럼 처리 완료 (NaN → 0.0)")
+                
+                # float 타입인 경우 소수점 정밀도 보존, int 타입인 경우 정수 유지
+                if pd.api.types.is_float_dtype(original_dtype):
+                    # float 타입은 소수점 정밀도 보존 (round(4)로 더 정밀하게)
+                    df_clean[col] = df_clean[col].round(4)
+                    print(f"[INFO] {col} 컬럼 처리 완료 (float, 소수점 4자리 보존)")
+                else:
+                    # int 타입은 정수로 유지
+                    df_clean[col] = df_clean[col].round().astype(int)
+                    print(f"[INFO] {col} 컬럼 처리 완료 (int, 정수 유지)")
         
         # ✅ 2. 완전히 빈 행 제거 (이미 NaN을 0으로 채웠으므로 의미없음, 하지만 안전장치)
         before_len = len(df_clean)

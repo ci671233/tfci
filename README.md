@@ -26,8 +26,7 @@ pip install tfci
 
 ```bash
 git clone https://github.com/rosci671233/tfci.git
-cd tfci
-pip install -e .
+pip install -r requirements.txt
 ```
 
 ## 사용법
@@ -49,11 +48,9 @@ predict("config3.yaml")
 ### 2. 로컬 실행
 
 ```bash
-# 기본 실행 (T_PBAF3101S.yaml 사용)
+# 기본 실행 (config.yaml 사용)
 python tfci.py
 
-# 특정 설정 파일
-python tfci.py config.yaml
 ```
 
 ### 3. MCP 서버 사용
@@ -107,6 +104,7 @@ output:
 
 ```
 tfci/
+├── config.yaml           # 설정 파일
 ├── tfci.py               # 로컬 실행용
 ├── mcp_tfci.py           # MCP 서버 배포용
 ├── pyproject.toml        # PyPI 배포 설정

@@ -459,7 +459,8 @@ class Model:
                         print(f"  {col}: {current_dtype} → Int64 (원본: {original_dtype})")
                         
                     elif pd.api.types.is_float_dtype(original_dtype):
-                        df_restored[col] = df_restored[col].astype('float64')
+                        # float 타입은 소수점 정밀도 보존
+                        df_restored[col] = pd.to_numeric(df_restored[col], errors='coerce').astype('float64')
                         print(f"  {col}: {current_dtype} → float64 (원본: {original_dtype})")
                         
                     elif pd.api.types.is_object_dtype(original_dtype):
