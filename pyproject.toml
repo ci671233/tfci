@@ -62,14 +62,14 @@ Documentation = "https://github.com/rosci671233/tfci#readme"
 Repository = "https://github.com/rosci671233/tfci.git"
 "Bug Tracker" = "https://github.com/rosci671233/tfci/issues"
 
-[project.scripts]
-tfci = "lib_tfci:predict"
+# [project.scripts] 섹션 제거 - 패키지로 사용할 예정
 
 
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
+    "tfci*", # Added to include the tfci package
     "config*",
     "core*", 
     "data*",
