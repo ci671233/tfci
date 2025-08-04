@@ -10,6 +10,7 @@
 - ✅ **Prophet 시계열 예측**
 - ✅ **하이브리드 예측 전략** (트렌드 기반 + Prophet)
 - ✅ **멀티프로세싱 지원**
+- ✅ **group_key 리스트 지원** (다중 컬럼 그룹화)
 
 ## 설치
 
@@ -25,6 +26,8 @@ pip install tfci
 
 ```bash
 git clone https://github.com/rosci671233/tfci.git
+cd tfci
+pip install -e .
 ```
 
 ## 사용법
@@ -46,7 +49,7 @@ predict("config3.yaml")
 ### 2. 로컬 실행
 
 ```bash
-# 기본 실행 (config.yaml 사용)
+# 기본 실행 (T_PBAF3101S.yaml 사용)
 python tfci.py
 
 # 특정 설정 파일
@@ -65,8 +68,6 @@ python mcp_tfci.py --config config2.yaml
 python mcp_tfci.py --config config3.yaml
 ```
 
-
-
 ### 설정 파일 예시
 
 ```yaml
@@ -81,14 +82,14 @@ input:
     password: "password"
     database: "SAMPLE"
   table: "MY_TABLE"
-  features: ["RGN_CD", "CRTR_YR"]
-  target: ["GRDR1_STDNT_NOPE", "GRDR2_STDNT_NOPE"]
+  features: ["RGN_CD", "CRTR_YR", "SCHL_TYPE_NM"]
+  target: ["STDNT_NOPE"]
 
 prediction:
   task_type: "timeseries"
   future_steps: 5         # 5년 후 예측
   time_col: "CRTR_YR"     # 시계열 기준 컬럼
-  group_key: "RGN_CD"     # 지역별로 개별 시계열 모델
+  group_key: ["RGN_CD", "SCHL_TYPE_NM"]   # 다중 컬럼 그룹화 지원
 
 output:
   source_type: "db"
@@ -107,9 +108,10 @@ output:
 ```
 tfci/
 ├── tfci.py               # 로컬 실행용
-├── lib_tfci.py           # PyPI 배포용 라이브러리
 ├── mcp_tfci.py           # MCP 서버 배포용
 ├── pyproject.toml        # PyPI 배포 설정
+├── tfci/                 # 라이브러리 패키지
+│   └── __init__.py       # 라이브러리 API
 ├── core/
 │   └── predictor.py      # 핵심 예측 로직
 ├── data/
@@ -123,7 +125,6 @@ tfci/
 ├── mcp/
 │   ├── http_server.py    # HTTP 서버 (미사용)
 │   └── mcp_server.py     # MCP 서버 (미사용)
-├── config.yaml           # 설정 파일
 └── requirements.txt      # 의존성
 ```
 
@@ -134,7 +135,7 @@ tfci/
 - 개발 및 테스트용
 
 ### 2. PyPI - 라이브러리용
-- `lib_tfci.py`: 라이브러리 API 제공
+- `tfci/__init__.py`: 라이브러리 API 제공
 - `pip install tfci`로 설치
 - `from tfci import predict`로 사용
 
@@ -142,8 +143,6 @@ tfci/
 - `mcp_tfci.py`: MCP 서버 실행
 - `python mcp_tfci.py --config config.yaml`
 - 배포 및 운영용
-
-
 
 ## 예측 방식
 
@@ -154,6 +153,11 @@ tfci/
    - 복잡한 패턴이면 → Prophet 모델
 3. **지역별 독립 예측**: 각 지역(`group_key`)별로 개별 시계열 모델
 4. **자동 저장**: 예측 결과가 자동으로 DB에 저장됨
+
+### group_key 리스트 지원
+- 단일 컬럼: `group_key: "RGN_CD"`
+- 다중 컬럼: `group_key: ["RGN_CD", "SCHL_TYPE_NM"]`
+- 다중 컬럼 그룹화로 더 세밀한 예측 가능
 
 ## 라이브러리 배포
 
