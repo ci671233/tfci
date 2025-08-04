@@ -31,6 +31,6 @@ def predict(config_path: str = "config.yaml"):
         traceback.print_exc()
 
 # 라이브러리 버전 정보
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 __author__ = "TFCI Team"
 __email__ = "rosci671233@gmail.com" 
