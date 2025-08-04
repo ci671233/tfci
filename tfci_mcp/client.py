@@ -20,7 +20,7 @@ class TFCIMCPClient:
             # 패키지 내부의 서버 스크립트 경로
             import os
             package_dir = os.path.dirname(os.path.abspath(__file__))
-            server_script = os.path.join(os.path.dirname(package_dir), "mcp", "mcp_server.py")
+            server_script = os.path.join(package_dir, "server.py")
         
         self.server_script = server_script
         self.process = None

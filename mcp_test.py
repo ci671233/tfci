@@ -3,7 +3,7 @@
 TFCI MCP 테스트 - 라이브러리처럼 사용
 """
 
-from mcp.client import TFCIMCPClient
+from tfci_mcp import TFCIMCPClient
 
 # MCP 클라이언트 생성
 client = TFCIMCPClient()
@@ -16,4 +16,4 @@ client.predict("T_PBAF3202S.yaml")
 client.predict("T_PBAF3301S.yaml")
 
 # 서버 종료
-client.stop_server() 
+client.stop_server()
