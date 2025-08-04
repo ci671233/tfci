@@ -135,11 +135,24 @@ class ModelProcessor:
             future_years = list(range(last_year + 1, last_year + future_steps + 1))
             
             # 결과 DataFrame 생성
-            result_df = pd.DataFrame({
-                group_key: [region] * future_steps,
-                time_col: future_years,
-                target: final_preds
-            })
+            if isinstance(group_key, list):
+                # group_key가 리스트인 경우 각 컬럼에 대해 처리
+                data_dict = {}
+                for i, col in enumerate(group_key):
+                    if isinstance(region, tuple) and len(region) == len(group_key):
+                        data_dict[col] = [region[i]] * future_steps
+                    else:
+                        data_dict[col] = [region] * future_steps
+                data_dict[time_col] = future_years
+                data_dict[target] = final_preds
+                result_df = pd.DataFrame(data_dict)
+            else:
+                # group_key가 단일 문자열인 경우
+                result_df = pd.DataFrame({
+                    group_key: [region] * future_steps,
+                    time_col: future_years,
+                    target: final_preds
+                })
             result_df['_target_name'] = target
             return result_df
 
@@ -277,11 +290,24 @@ class ModelProcessor:
 
     def _create_empty_result(self, region, future_steps, group_key, time_col, target):
         """빈 결과 DataFrame 생성 - 완전히 동적"""
-        result_df = pd.DataFrame({
-            group_key: [region] * future_steps,    # 사용자 설정 컬럼명 사용
-            time_col: [np.nan] * future_steps,     # 사용자 설정 컬럼명 사용
-            target: [np.nan] * future_steps
-        })
+        if isinstance(group_key, list):
+            # group_key가 리스트인 경우 각 컬럼에 대해 처리
+            data_dict = {}
+            for i, col in enumerate(group_key):
+                if isinstance(region, tuple) and len(region) == len(group_key):
+                    data_dict[col] = [region[i]] * future_steps
+                else:
+                    data_dict[col] = [region] * future_steps
+            data_dict[time_col] = [np.nan] * future_steps
+            data_dict[target] = [np.nan] * future_steps
+            result_df = pd.DataFrame(data_dict)
+        else:
+            # group_key가 단일 문자열인 경우
+            result_df = pd.DataFrame({
+                group_key: [region] * future_steps,    # 사용자 설정 컬럼명 사용
+                time_col: [np.nan] * future_steps,     # 사용자 설정 컬럼명 사용
+                target: [np.nan] * future_steps
+            })
         result_df['_target_name'] = target
         return result_df
 
@@ -366,8 +392,15 @@ class Model:
             raise ValueError(f"시간 컬럼 '{time_col}'을 숫자형으로 변환할 수 없습니다.")
         
         # ✅ 데이터 검증
-        if group_key not in df.columns:
-            raise ValueError(f"그룹 키 '{group_key}'가 데이터에 존재하지 않습니다.")
+        if isinstance(group_key, list):
+            # group_key가 리스트인 경우 모든 컬럼이 존재하는지 확인
+            missing_group_cols = [col for col in group_key if col not in df.columns]
+            if missing_group_cols:
+                raise ValueError(f"그룹 키 컬럼이 데이터에 존재하지 않습니다: {missing_group_cols}")
+        else:
+            # group_key가 단일 문자열인 경우
+            if group_key not in df.columns:
+                raise ValueError(f"그룹 키 '{group_key}'가 데이터에 존재하지 않습니다.")
         
         if time_col not in df.columns:
             raise ValueError(f"시간 컬럼 '{time_col}'이 데이터에 존재하지 않습니다.")
@@ -474,7 +507,12 @@ class Model:
             target_name = result_df['_target_name'].iloc[0]
             valid_data = result_df.dropna(subset=[target_name])
             if len(valid_data) > 0:
-                actual_predictions.append(valid_data[[group_key, time_col, target_name]])
+                # group_key가 리스트인 경우 처리
+                if isinstance(group_key, list):
+                    columns_to_select = group_key + [time_col, target_name]
+                else:
+                    columns_to_select = [group_key, time_col, target_name]
+                actual_predictions.append(valid_data[columns_to_select])
         
         if not actual_predictions:
             print("[WARNING] 유효한 예측 데이터가 없습니다.")
@@ -482,7 +520,11 @@ class Model:
         
         # 실제 예측된 조합들만 사용 (각 지역별로 5년 예측)
         base_df = pd.concat(actual_predictions, ignore_index=True)
-        base_df = base_df[[group_key, time_col]].drop_duplicates()
+        if isinstance(group_key, list):
+            columns_to_select = group_key + [time_col]
+        else:
+            columns_to_select = [group_key, time_col]
+        base_df = base_df[columns_to_select].drop_duplicates()
         
         print(f"[INFO] 실제 예측 결과 기준 프레임 생성: {len(base_df)} rows")
         print(f"[INFO] 예측 연도 범위: {base_df[time_col].min()} ~ {base_df[time_col].max()}")
@@ -500,7 +542,10 @@ class Model:
             
             # 해당 target의 데이터만 추출
             merge_df = result_df.drop(columns=['_target_name']).copy()
-            merge_df = merge_df.dropna(subset=[group_key, time_col])
+            if isinstance(group_key, list):
+                merge_df = merge_df.dropna(subset=group_key + [time_col])
+            else:
+                merge_df = merge_df.dropna(subset=[group_key, time_col])
             target_results[target_name].append(merge_df)
 
         # ✅ 각 target별로 먼저 통합한 후 병합
@@ -509,18 +554,30 @@ class Model:
             
             if len(target_results[target_name]) == 1:
                 # 단일 결과인 경우
-                target_df = target_results[target_name][0][[group_key, time_col, target_name]]
+                if isinstance(group_key, list):
+                    columns_to_select = group_key + [time_col, target_name]
+                else:
+                    columns_to_select = [group_key, time_col, target_name]
+                target_df = target_results[target_name][0][columns_to_select]
             else:
                 # 여러 결과를 통합
                 combined_data = []
                 for df in target_results[target_name]:
                     if target_name in df.columns:
-                        combined_data.append(df[[group_key, time_col, target_name]])
+                        if isinstance(group_key, list):
+                            columns_to_select = group_key + [time_col, target_name]
+                        else:
+                            columns_to_select = [group_key, time_col, target_name]
+                        combined_data.append(df[columns_to_select])
                 
                 if combined_data:
                     # 중복 제거하며 통합 (같은 지역-년도는 평균값 사용)
                     target_df = pd.concat(combined_data, ignore_index=True)
-                    target_df = target_df.groupby([group_key, time_col], as_index=False)[target_name].mean()
+                    if isinstance(group_key, list):
+                        group_cols = group_key + [time_col]
+                    else:
+                        group_cols = [group_key, time_col]
+                    target_df = target_df.groupby(group_cols, as_index=False)[target_name].mean()
                 else:
                     continue
             
@@ -531,7 +588,7 @@ class Model:
             
             base_df = base_df.merge(
                 target_df, 
-                on=[group_key, time_col], 
+                on=group_key + [time_col] if isinstance(group_key, list) else [group_key, time_col], 
                 how='left'
             )
             
@@ -544,11 +601,18 @@ class Model:
                 print(f"[WARNING] {target} 컬럼이 없어서 NaN으로 추가")
 
         # 컬럼 순서 정리
-        column_order = [group_key, time_col] + list(target_columns)
+        if isinstance(group_key, list):
+            column_order = group_key + [time_col] + list(target_columns)
+        else:
+            column_order = [group_key, time_col] + list(target_columns)
         base_df = base_df[column_order]
 
         # 정렬
-        base_df = base_df.sort_values([group_key, time_col]).reset_index(drop=True)
+        if isinstance(group_key, list):
+            sort_cols = group_key + [time_col]
+        else:
+            sort_cols = [group_key, time_col]
+        base_df = base_df.sort_values(sort_cols).reset_index(drop=True)
         
         print(f"[INFO] Wide Format 변환 완료: {base_df.shape}")
         print(f"[INFO] 최종 컬럼: {list(base_df.columns)}")

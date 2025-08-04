@@ -211,10 +211,18 @@ class Database:
         
         # ✅ 3. 동적 컬럼 처리 (컬럼명 하드코딩 제거)
         # 그룹 컬럼 처리 (예: RGN_CD, REGION_ID, AREA_CODE 등 어떤 이름이든)
-        if group_col and group_col in df_clean.columns:
-            # 문자열로 변환하되, 구체적인 자릿수는 데이터에 따라 결정
-            df_clean[group_col] = df_clean[group_col].astype(str)
-            print(f"[INFO] {group_col} 컬럼을 문자열로 변환완료")
+        if group_col:
+            if isinstance(group_col, list):
+                # group_col이 리스트인 경우 모든 컬럼을 처리
+                for col in group_col:
+                    if col in df_clean.columns:
+                        df_clean[col] = df_clean[col].astype(str)
+                        print(f"[INFO] {col} 컬럼을 문자열로 변환완료")
+            else:
+                # group_col이 단일 문자열인 경우
+                if group_col in df_clean.columns:
+                    df_clean[group_col] = df_clean[group_col].astype(str)
+                    print(f"[INFO] {group_col} 컬럼을 문자열로 변환완료")
         
         # 시간 컬럼 처리 (예: CRTR_YR, YEAR, DATE 등 어떤 이름이든)
         if time_col and time_col in df_clean.columns:
@@ -226,7 +234,10 @@ class Database:
         # ✅ 4. 필수 컬럼 누락 확인 (동적)
         essential_cols = []
         if group_col:
-            essential_cols.append(group_col)
+            if isinstance(group_col, list):
+                essential_cols.extend(group_col)
+            else:
+                essential_cols.append(group_col)
         if time_col:
             essential_cols.append(time_col)
         
