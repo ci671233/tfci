@@ -418,14 +418,28 @@ class Model:
 
         print(f"[INFO] 총 {len(tasks)}개 태스크 생성")
 
-        # 멀티프로세싱 실행
+        # 멀티프로세싱 실행 (CI/CD 환경에서는 단일 프로세스 사용)
         results = []
-        n_processes = max(1, min(cpu_count() - 1, len(tasks)))
         
-        with Pool(processes=n_processes) as pool:
-            for result in tqdm(pool.imap_unordered(process_single_task, tasks),
-                             total=len(tasks), desc="예측 진행", unit="task"):
+        # CI/CD 환경 감지 (환경변수로 확인)
+        import os
+        is_ci = os.getenv('CI', 'false').lower() == 'true'
+        
+        if is_ci or len(tasks) <= 1:
+            # CI/CD 환경이거나 태스크가 1개 이하인 경우 단일 프로세스
+            print("[INFO] 단일 프로세스 모드로 실행")
+            for task in tqdm(tasks, desc="예측 진행", unit="task"):
+                result = process_single_task(task)
                 results.append(result)
+        else:
+            # 일반 환경에서는 멀티프로세싱 사용
+            n_processes = max(1, min(cpu_count() - 1, len(tasks)))
+            print(f"[INFO] 멀티프로세싱 모드로 실행 (프로세스 수: {n_processes})")
+            
+            with Pool(processes=n_processes) as pool:
+                for result in tqdm(pool.imap_unordered(process_single_task, tasks),
+                                 total=len(tasks), desc="예측 진행", unit="task"):
+                    results.append(result)
 
         if not results:
             print("[WARNING] 예측 결과가 없습니다.")
