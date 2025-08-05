@@ -4,7 +4,7 @@ TFCI (Time Forecasting CI) - 시계열 예측 라이브러리
 """
 
 from core.predictor import Predictor
-from data.data import load_config
+from config.config import load_config
 
 def predict(config_path: str):
     """

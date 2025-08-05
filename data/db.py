@@ -104,7 +104,12 @@ class Database:
             pconn = ibm_db_dbi.Connection(conn)
             cursor = pconn.cursor()
 
-
+            # ✅ DB 컬럼 타입 확인
+            column_types = self._get_column_types(cursor)
+            if not column_types:
+                print(f"[WARNING] 테이블이 존재하지 않거나 컬럼 정보를 가져올 수 없습니다.")
+                print(f"[INFO] 기본 타입으로 진행합니다.")
+                column_types = {}
 
             # 데이터 준비
             df_to_save = df_clean.copy()
@@ -148,16 +153,11 @@ class Database:
                         val = row[col]
                         if pd.isna(val):
                             row_tuple.append(None)
-                        elif col in [group_col, time_col]:  # ✅ 동적 컬럼명 사용
-                            row_tuple.append(str(val))
-                        elif col in target_cols:  # target 컬럼들 (설정에서 가져옴)
-                            # 소수점 정밀도 보존
-                            if pd.isna(val):
-                                row_tuple.append(None)
-                            else:
-                                row_tuple.append(float(val))
-                        else:  # 기타 컬럼들
-                            row_tuple.append(str(val))
+                        else:
+                            row_tuple.append(val)
+                    
+                    # ✅ DB 컬럼 타입에 맞게 데이터 변환
+                    row_tuple = self._convert_to_db_types(row_tuple, final_cols, column_types)
                     batch_tuples.append(tuple(row_tuple))
                 
                 print(f"[INFO] 배치 {i//batch_size + 1}: {len(batch_tuples)}개 레코드 삽입...")
@@ -221,7 +221,7 @@ class Database:
                 print(f"[INFO] {col} 원본 타입: {original_dtype}")
                 
                 df_clean[col] = df_clean[col].fillna(0.0)
-                df_clean[col] = df_clean[col].clip(lower=0.0)
+                # 음수 허용 (실제 데이터에 음수가 있음)
                 
                 # float 타입인 경우 소수점 정밀도 보존, int 타입인 경우 정수 유지
                 if pd.api.types.is_float_dtype(original_dtype):
@@ -233,26 +233,12 @@ class Database:
                     df_clean[col] = df_clean[col].round().astype(int)
                     print(f"[INFO] {col} 컬럼 처리 완료 (int, 정수 유지)")
                 
-                # DB 스키마에 맞게 값 범위 조정 (DECIMAL(7,2) 등)
-                # 예측값이 범위를 초과할 경우 적절히 조정
+                # 데이터 정밀도 보존 (범위 제한 제거)
                 if pd.api.types.is_float_dtype(df_clean[col].dtype):
-                    # DECIMAL(7,2) = 총 7자리, 소수점 2자리 = 최대 99999.99
-                    max_value = 99999.99
-                    min_value = -99999.99
-                    
-                    # 범위를 초과하는 값들을 조정
-                    if df_clean[col].max() > max_value or df_clean[col].min() < min_value:
-                        print(f"[WARNING] {col} 컬럼의 값이 DB 범위를 초과합니다. 조정 중...")
-                        print(f"  - 원본 범위: {df_clean[col].min():.2f} ~ {df_clean[col].max():.2f}")
-                        
-                        # 범위를 초과하는 값들을 적절히 조정
-                        df_clean[col] = df_clean[col].clip(lower=min_value, upper=max_value)
-                        
-                        print(f"  - 조정 후 범위: {df_clean[col].min():.2f} ~ {df_clean[col].max():.2f}")
-                    
-                    # 소수점 2자리로 반올림 (DECIMAL(7,2)에 맞춤)
-                    df_clean[col] = df_clean[col].round(2)
-                    print(f"[INFO] {col} 컬럼을 DB 스키마에 맞게 조정 완료 (DECIMAL(7,2) 범위)")
+                    # 원본 데이터의 정밀도 보존 (소수점 4자리까지 허용)
+                    df_clean[col] = df_clean[col].round(4)
+                    print(f"[INFO] {col} 컬럼 처리 완료 (float, 소수점 4자리 보존, 범위 제한 없음)")
+                    print(f"  - 데이터 범위: {df_clean[col].min():.4f} ~ {df_clean[col].max():.4f}")
         
         # ✅ 2. 완전히 빈 행 제거 (이미 NaN을 0으로 채웠으므로 의미없음, 하지만 안전장치)
         before_len = len(df_clean)
@@ -304,3 +290,103 @@ class Database:
         print(f"  - Final columns: {list(df_clean.columns)}")
         
         return df_clean
+
+    def _get_column_types(self, cursor):
+        """DB 테이블의 컬럼 타입 정보를 가져옴"""
+        try:
+            table_name = self.config['table']
+            schema_name, table_name_only = table_name.split('.') if '.' in table_name else ('', table_name)
+            
+            if schema_name:
+                sql = f"""
+                SELECT COLNAME, TYPENAME, LENGTH, SCALE 
+                FROM SYSCAT.COLUMNS 
+                WHERE TABSCHEMA = '{schema_name}' AND TABNAME = '{table_name_only}'
+                ORDER BY COLNO
+                """
+            else:
+                sql = f"""
+                SELECT COLNAME, TYPENAME, LENGTH, SCALE 
+                FROM SYSCAT.COLUMNS 
+                WHERE TABNAME = '{table_name_only}'
+                ORDER BY COLNO
+                """
+            
+            cursor.execute(sql)
+            columns_info = cursor.fetchall()
+            
+            column_types = {}
+            for col_info in columns_info:
+                colname, typename, length, scale = col_info
+                column_types[colname] = {
+                    'type': typename,
+                    'length': length,
+                    'scale': scale
+                }
+            
+            print(f"[INFO] DB 컬럼 타입 확인 완료:")
+            for col, type_info in column_types.items():
+                print(f"  {col}: {type_info['type']}({type_info['length']},{type_info['scale']})")
+            
+            return column_types
+            
+        except Exception as e:
+            print(f"[WARNING] 컬럼 타입 확인 실패: {e}")
+            return {}
+
+    def _convert_to_db_types(self, row_tuple, columns, column_types):
+        """DB 컬럼 타입에 맞게 데이터 변환"""
+        converted_tuple = []
+        
+        for i, (col, val) in enumerate(zip(columns, row_tuple)):
+            if col in column_types:
+                type_info = column_types[col]
+                typename = type_info['type']
+                length = type_info['length']
+                scale = type_info['scale']
+                
+                if val is None:
+                    converted_tuple.append(None)
+                elif typename == 'DECIMAL':
+                    # DECIMAL 타입에 맞게 변환
+                    try:
+                        if isinstance(val, (int, float)):
+                            # DECIMAL 범위에 맞게 조정
+                            max_value = 10 ** (length - scale) - 1
+                            min_value = -max_value
+                            
+                            # 범위를 초과하는 경우 조정
+                            if val > max_value:
+                                print(f"[WARNING] {col} 값이 범위를 초과: {val} > {max_value}")
+                                val = max_value
+                            elif val < min_value:
+                                print(f"[WARNING] {col} 값이 범위를 초과: {val} < {min_value}")
+                                val = min_value
+                            
+                            # 소수점 자릿수 조정
+                            val = round(float(val), scale)
+                            converted_tuple.append(val)
+                        else:
+                            converted_tuple.append(float(val) if val else None)
+                    except:
+                        converted_tuple.append(None)
+                elif typename in ['VARCHAR', 'CHAR']:
+                    # 문자열 타입
+                    str_val = str(val) if val else None
+                    if str_val and len(str_val) > length:
+                        str_val = str_val[:length]
+                    converted_tuple.append(str_val)
+                elif typename in ['INTEGER', 'SMALLINT', 'BIGINT']:
+                    # 정수 타입
+                    try:
+                        converted_tuple.append(int(val) if val else None)
+                    except:
+                        converted_tuple.append(None)
+                else:
+                    # 기타 타입은 그대로
+                    converted_tuple.append(val)
+            else:
+                # 타입 정보가 없으면 그대로
+                converted_tuple.append(val)
+        
+        return converted_tuple

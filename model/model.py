@@ -21,69 +21,9 @@ def process_single_task(args):
 
 
 class ModelProcessor:
-    """시계열 예측을 위한 모델 처리 클래스
-    
-    주요 기능:
-    - 트렌드/계절성 분석 기반 모델 선택
-    - 단순 선형 트렌드 예측 (안정적)
-    - Prophet 예측 (복잡한 패턴)
-    - 지역별 독립 예측 처리
-    """
+    """시계열 예측을 위한 모델 처리 클래스"""
     def __init__(self, config):
         self.config = config
-
-    def preprocess_data(self, df):
-        """이상치 제거 및 데이터 정제"""
-        df = df.copy()
-        for col in df.select_dtypes(include=[np.number]).columns:
-            if df[col].std() > 1e-9:  # 표준편차가 0이 아닌 경우만
-                z_scores = (df[col] - df[col].mean()) / df[col].std()
-                df.loc[z_scores.abs() > 3, col] = np.nan
-            df[col] = df[col].interpolate(method='linear').fillna(method='bfill').fillna(method='ffill')
-        return df
-
-    def add_features(self, group, target):
-        """시계열 피처 엔지니어링"""
-        group = group.copy()
-        
-        # 기본 lag 피처
-        group['lag1'] = group[target].shift(1)
-        group['lag2'] = group[target].shift(2)
-        group['lag3'] = group[target].shift(3)
-        
-        # 이동평균 피처
-        group['rolling_mean_2'] = group[target].rolling(window=2, min_periods=1).mean()
-        group['rolling_mean_3'] = group[target].rolling(window=3, min_periods=1).mean()
-        group['rolling_mean_5'] = group[target].rolling(window=5, min_periods=1).mean()
-        
-        # 이동표준편차 피처
-        group['rolling_std_3'] = group[target].rolling(window=3, min_periods=1).std()
-        group['rolling_std_5'] = group[target].rolling(window=5, min_periods=1).std()
-        
-        # 변화율 피처
-        group['change_rate'] = group[target].pct_change()
-        group['change_rate_2'] = group[target].pct_change(periods=2)
-        
-        # 추세 피처
-        group['trend'] = np.arange(len(group))
-        group['trend_squared'] = group['trend'] ** 2
-        
-        # 계절성 피처 (연도 기반)
-        group['year'] = group.index.astype(int) if group.index.dtype == 'int64' else np.arange(len(group))
-        group['year_sin'] = np.sin(2 * np.pi * group['year'] / 10)  # 10년 주기
-        group['year_cos'] = np.cos(2 * np.pi * group['year'] / 10)
-        
-        # 통계적 피처
-        group['z_score'] = (group[target] - group[target].rolling(window=5, min_periods=1).mean()) / \
-                          (group[target].rolling(window=5, min_periods=1).std() + 1e-8)
-        
-        # 결측치 처리
-        group = group.fillna(method='bfill').fillna(method='ffill').fillna(0)
-        
-        # 무한값 처리
-        group = group.replace([np.inf, -np.inf], 0)
-        
-        return group
 
     def tune_prophet(self, df):
         """Prophet 하이퍼파라미터 튜닝 - 단순화"""
@@ -94,10 +34,8 @@ class ModelProcessor:
             "changepoint_range": 0.8
         }
 
-
-
     def process_region_target(self, region, group_data, target, time_col, future_steps, group_key, all_data=None):
-        """단일 (region, target) 처리 - 전체 데이터 참고 + 정교한 트렌드 판단"""
+        """단일 (region, target) 처리"""
         try:
             group = group_data.copy()
             group = group.sort_values(by=time_col).reset_index(drop=True)
@@ -119,14 +57,16 @@ class ModelProcessor:
             # 데이터 품질 검증
             target_values = group_clean[target].astype(float)
             
-            # 정교한 트렌드/계절성 분석
+            # 트렌드/계절성 분석
             trend_strength = self._trend_strength(target_values)
             seasonality_strength = self._seasonality_strength(target_values)
             
             # 트렌드가 명확하고 계절성이 약하면 단순 선형 트렌드 기반 예측
             if trend_strength > 0.05 and seasonality_strength < 0.3:
+                print(f"[DEBUG] {region}-{target}: 트렌드 기반 예측 사용 (trend_strength: {trend_strength:.3f}, seasonality_strength: {seasonality_strength:.3f})")
                 final_preds = self._simple_trend_based_prediction(target_values, future_steps)
             else:
+                print(f"[DEBUG] {region}-{target}: Prophet 예측 사용 (trend_strength: {trend_strength:.3f}, seasonality_strength: {seasonality_strength:.3f})")
                 # Prophet 보조적 사용
                 final_preds = self._prophet_prediction(group_clean, target, time_col, future_steps)
             
@@ -136,7 +76,6 @@ class ModelProcessor:
             
             # 결과 DataFrame 생성
             if isinstance(group_key, list):
-                # group_key가 리스트인 경우 각 컬럼에 대해 처리
                 data_dict = {}
                 for i, col in enumerate(group_key):
                     if isinstance(region, tuple) and len(region) == len(group_key):
@@ -147,7 +86,6 @@ class ModelProcessor:
                 data_dict[target] = final_preds
                 result_df = pd.DataFrame(data_dict)
             else:
-                # group_key가 단일 문자열인 경우
                 result_df = pd.DataFrame({
                     group_key: [region] * future_steps,
                     time_col: future_years,
@@ -167,96 +105,128 @@ class ModelProcessor:
             return self._create_empty_result(region, future_steps, group_key, time_col, target)
 
     def _simple_trend_based_prediction(self, historical_values, future_steps):
-        """단순하고 안정적인 트렌드 기반 예측 - 정확도 향상"""
+        """데이터 기반 동적 트렌드 예측 - 가중 회귀 적용"""
         if len(historical_values) < 1:
             return [historical_values.iloc[-1]] * future_steps
         
-        # 마지막 값
+        print(f"[DEBUG] 예측 대상 데이터: {historical_values.tolist()}")
+        
+        mean_val = historical_values.mean()
+        std_val = historical_values.std()
         last_value = historical_values.iloc[-1]
         
-        # 전체 데이터로 트렌드 분석 (제한 없이)
+        print(f"[DEBUG] 평균: {mean_val:.2f}, 표준편차: {std_val:.2f}, 마지막값: {last_value:.2f}")
+        
+        # 변동계수 계산
+        volatility = std_val / (abs(mean_val) + 1e-8)
+        print(f"[DEBUG] 변동성: {volatility:.3f}")
+        
+        # 가중 회귀로 트렌드 계산 (최근 데이터에 더 큰 가중치)
         x = np.arange(len(historical_values))
-        y = historical_values
-        slope = np.polyfit(x, y, 1)[0]
+        y = historical_values.values
         
-        # R-squared 계산으로 트렌드 신뢰도 측정
-        y_pred = slope * x + np.polyfit(x, y, 1)[1]
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        # 지수적 가중치: 최근 데이터일수록 높은 가중치
+        weights = np.exp(np.linspace(-2, 0, len(historical_values)))
+        print(f"[DEBUG] 가중치: {weights}")
         
-        # 트렌드 신뢰도가 낮으면 보수적으로 조정
-        if r_squared < 0.3:
-            slope = slope * 0.5  # 트렌드를 절반으로 줄임
+        # 가중 선형 회귀
+        slope = np.polyfit(x, y, 1, w=weights)[0]
+        print(f"[DEBUG] 가중 회귀 기울기: {slope:.3f}")
         
-        # 예측값 생성 - 더 보수적이고 자연스럽게
+        # 추가: 최근 3년 데이터가 있으면 단기 트렌드도 고려
+        if len(historical_values) >= 3:
+            recent_data = historical_values[-3:].values
+            recent_x = np.arange(len(recent_data))
+            recent_slope = np.polyfit(recent_x, recent_data, 1)[0]
+            print(f"[DEBUG] 최근 3년 기울기: {recent_slope:.3f}")
+            
+            original_slope = slope
+            # 장기 가중 트렌드(70%) + 최근 트렌드(30%) 결합
+            slope = 0.7 * slope + 0.3 * recent_slope
+            print(f"[DEBUG] 결합 기울기: {original_slope:.3f} * 0.7 + {recent_slope:.3f} * 0.3 = {slope:.3f}")
+        
+        # 슬로프 조정
+        max_change_rate = 0.2
+        if volatility > 0.5:
+            max_change_rate *= 0.5
+            print(f"[DEBUG] 높은 변동성으로 변화율 조정: {max_change_rate:.3f}")
+        
+        max_slope = abs(mean_val) * max_change_rate
+        print(f"[DEBUG] 최대 허용 기울기: ±{max_slope:.3f}")
+        
+        original_slope_final = slope
+        if abs(slope) > max_slope:
+            slope = max_slope if slope > 0 else -max_slope
+            print(f"[DEBUG] 기울기 제한: {original_slope_final:.3f} → {slope:.3f}")
+        
+        # 예측값 생성
         predictions = []
-        current_value = last_value
-        
-        for i in range(1, future_steps+1):
-            # 기본 트렌드 적용
+        for i in range(1, future_steps + 1):
             pred = last_value + slope * i
             
-            # 연속성 강화: 전년도 대비 5% 이상 차이 나면 보정 (더 엄격하게)
+            # 연속성 제한
             if predictions:
-                max_change = predictions[-1] * 0.05  # 최대 5% 변화
+                max_change = abs(last_value) * max(volatility, 0.01)
                 if abs(pred - predictions[-1]) > max_change:
-                    if pred > predictions[-1]:
-                        pred = predictions[-1] + max_change
-                    else:
-                        pred = predictions[-1] - max_change
+                    old_pred = pred
+                    pred = predictions[-1] + (max_change if pred > predictions[-1] else -max_change)
+                    print(f"[DEBUG] 연속성 제한: {old_pred:.2f} → {pred:.2f}")
             
-            # 음수 방지
-            pred = max(0, pred)
             predictions.append(pred)
         
+        print(f"[DEBUG] 최종 예측값: {predictions}")
         return predictions
 
-
-
     def _trend_strength(self, y):
-        """트렌드 강도 계산 - 더 정교한 판단"""
+        """트렌드 강도 계산"""
         if len(y) < 2:
             return 0
+        
+        mean_val = y.mean()
+        std_val = y.std()
         
         # 선형 회귀로 기울기 계산
         x = np.arange(len(y))
         slope = np.polyfit(x, y, 1)[0]
         
-        # R-squared 계산으로 트렌드의 설명력 측정
-        y_pred = slope * x + np.polyfit(x, y, 1)[1]
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        # 변동성 계산
+        volatility = std_val / (abs(mean_val) + 1e-8)
+        data_length_weight = min(len(y) / 10.0, 1.0)
         
-        # 트렌드 강도 = 기울기의 절대값 * R-squared * 데이터 길이 가중치
-        data_length_weight = min(len(y) / 10.0, 1.0)  # 데이터가 많을수록 가중치 높음
-        trend_strength = abs(slope) * r_squared * data_length_weight / (np.std(y) + 1e-8)
+        # 트렌드 신뢰도
+        trend_confidence = max(0, 1 - volatility)
+        
+        # 트렌드 강도
+        trend_strength = abs(slope) * trend_confidence * data_length_weight / (std_val + 1e-8)
         
         return trend_strength
 
     def _seasonality_strength(self, y):
-        """계절성 강도 계산 - 더 정교한 판단"""
+        """계절성 강도 계산"""
         if len(y) < 4:
             return 0
         
-        # 변화량의 표준편차로 계절성 측정
         diff = np.diff(y)
         seasonality_strength = np.std(diff) / (np.std(y) + 1e-8)
         
-        # 데이터 길이에 따른 가중치 적용
+        # 데이터 길이에 따른 가중치
         data_length_weight = min(len(y) / 10.0, 1.0)
         seasonality_strength = seasonality_strength * data_length_weight
         
         return seasonality_strength
 
     def _prophet_prediction(self, group_clean, target, time_col, future_steps):
-        """Prophet 보조적 예측 (트렌드가 불명확하거나 계절성이 강할 때만)"""
-        # Prophet 데이터 준비
+        """Prophet 예측 - 디버그 및 후처리 추가"""
+        historical_values = group_clean[target].astype(float)
+        print(f"[DEBUG Prophet] {target} 예측 대상 데이터: {historical_values.tolist()}")
+        
         prophet_df = pd.DataFrame({
             'ds': pd.to_datetime(group_clean[time_col].astype(int).astype(str) + '-01-01'),
-            'y': group_clean[target].astype(float)
+            'y': historical_values
         })
+        
+        print(f"[DEBUG Prophet] 마지막 값: {historical_values.iloc[-1]:.2f}")
+        
         best_prophet_params = self.tune_prophet(prophet_df)
         prophet_model = Prophet(
             changepoint_prior_scale=best_prophet_params.get('changepoint_prior_scale', 0.05),
@@ -272,26 +242,42 @@ class ModelProcessor:
         future_years = list(range(last_year + 1, last_year + future_steps + 1))
         future_dates = pd.DataFrame({'ds': pd.to_datetime([f"{yr}-01-01" for yr in future_years])})
         prophet_preds = prophet_model.predict(future_dates)['yhat'].values
-        return prophet_preds
-
-    def _calculate_model_error(self, model, *args):
-        """모델 오차 계산"""
-        try:
-            if hasattr(model, 'predict') and len(args) == 2:
-                X, y = args
-                preds = model.predict(X)
-                return np.sqrt(mean_squared_error(y, preds))
+        
+        print(f"[DEBUG Prophet] 원본 Prophet 예측값: {prophet_preds}")
+        
+        # 비현실적인 예측 감지 및 수정
+        last_value = historical_values.iloc[-1]
+        adjusted_preds = []
+        
+        for i, pred in enumerate(prophet_preds):
+            # 급격한 변화 감지
+            expected_change_per_year = abs(last_value) * 0.2  # 연간 20% 이상 변화 제한
+            max_total_change = expected_change_per_year * (i + 1)
+            
+            if abs(pred - last_value) > max_total_change:
+                print(f"[DEBUG Prophet] 급격한 변화 감지: Year {i+1}, {pred:.2f} → 제한 적용")
+                # 변화를 제한
+                if pred > last_value:
+                    adjusted_pred = last_value + max_total_change
+                else:
+                    adjusted_pred = last_value - max_total_change
             else:
-                df = args[0]
-                preds = model.predict(df)['yhat']
-                return np.sqrt(mean_squared_error(df['y'], preds))
-        except Exception:
-            return 1.0
+                adjusted_pred = pred
+            
+            # 특정 지표별 추가 제약
+            if target and 'RT' in target.upper():  # 비율 지표
+                if adjusted_pred < 0 and last_value > 0:
+                    print(f"[DEBUG Prophet] 비율 지표 음수 방지: {adjusted_pred:.2f} → {max(0.1, last_value * 0.1):.2f}")
+                    adjusted_pred = max(0.1, last_value * 0.1)
+            
+            adjusted_preds.append(adjusted_pred)
+        
+        print(f"[DEBUG Prophet] 조정된 예측값: {adjusted_preds}")
+        return adjusted_preds
 
     def _create_empty_result(self, region, future_steps, group_key, time_col, target):
-        """빈 결과 DataFrame 생성 - 완전히 동적"""
+        """빈 결과 DataFrame 생성"""
         if isinstance(group_key, list):
-            # group_key가 리스트인 경우 각 컬럼에 대해 처리
             data_dict = {}
             for i, col in enumerate(group_key):
                 if isinstance(region, tuple) and len(region) == len(group_key):
@@ -302,62 +288,24 @@ class ModelProcessor:
             data_dict[target] = [np.nan] * future_steps
             result_df = pd.DataFrame(data_dict)
         else:
-            # group_key가 단일 문자열인 경우
             result_df = pd.DataFrame({
-                group_key: [region] * future_steps,    # 사용자 설정 컬럼명 사용
-                time_col: [np.nan] * future_steps,     # 사용자 설정 컬럼명 사용
+                group_key: [region] * future_steps,
+                time_col: [np.nan] * future_steps,
                 target: [np.nan] * future_steps
             })
         result_df['_target_name'] = target
         return result_df
 
-    def _detect_trend(self, series):
-        """시계열에서 트렌드 감지 - 단순화"""
-        if len(series) < 3:
-            return False
-        
-        # 선형 회귀로 트렌드 검사
-        x = np.arange(len(series))
-        slope = np.polyfit(x, series, 1)[0]
-        return abs(slope) > series.std() * 0.05
-
-    def _detect_seasonality(self, series):
-        """시계열에서 계절성 감지 - 단순화"""
-        if len(series) < 6:
-            return False
-        
-        # 간단한 계절성 검사
-        diff = np.diff(series)
-        return np.std(diff) > series.std() * 0.1
-
-    def _validate_and_adjust_predictions(self, predictions, historical_values, future_steps):
-        """예측값 검증 및 조정 - 단순화"""
-        if len(predictions) == 0:
-            return predictions
-        
-        # 기본적인 검증만 수행
-        predictions = np.maximum(predictions, 0)
-        
-        # 극단적인 값 조정
-        mean_val = np.mean(historical_values) if len(historical_values) > 0 else 0
-        std_val = np.std(historical_values) if len(historical_values) > 0 else 1
-        
-        for i in range(len(predictions)):
-            if abs(predictions[i] - mean_val) > 3 * std_val:
-                predictions[i] = mean_val + np.random.normal(0, std_val * 0.5)
-        
-        return predictions
 
 class Model:
     def __init__(self, config):
         self.config = config
         self.models = {}
-        # ✅ 원본 데이터 타입 저장
         self.original_dtypes = {}
 
     def train_and_predict(self, X, y):
-        """메인 학습 및 예측 함수 - 원본 데이터 타입 보존"""
-        # ✅ 설정 검증
+        """메인 학습 및 예측 함수"""
+        # 설정 검증
         prediction_config = self.config.get("prediction", {})
         time_col = prediction_config.get("time_col")
         group_key = prediction_config.get("group_key")
@@ -371,41 +319,33 @@ class Model:
 
         print(f"[INFO] 시계열 예측 시작 - Time Col: {time_col}, Group: {group_key}")
         
-        # ✅ 1. 원본 데이터 타입 저장
+        # 원본 데이터 타입 저장
         df = X.copy()
         for col in y.columns:
             df[col] = y[col]
         
-        # 모든 컬럼의 원본 타입 저장
         self.original_dtypes = {col: df[col].dtype for col in df.columns}
         print(f"[INFO] 원본 데이터 타입 저장 완료")
-        print(f"[DEBUG] 데이터 타입 상세:")
-        for col, dtype in self.original_dtypes.items():
-            print(f"  {col}: {dtype}")
         
-        # ✅ 2. 내부 처리용 타입 변환 (시간 컬럼만)
-        original_time_dtype = df[time_col].dtype
+        # 시간 컬럼 처리
         df[time_col] = pd.to_numeric(df[time_col], errors='coerce')
         df = df.dropna(subset=[time_col])
         
         if len(df) == 0:
             raise ValueError(f"시간 컬럼 '{time_col}'을 숫자형으로 변환할 수 없습니다.")
         
-        # ✅ 데이터 검증
+        # 데이터 검증
         if isinstance(group_key, list):
-            # group_key가 리스트인 경우 모든 컬럼이 존재하는지 확인
             missing_group_cols = [col for col in group_key if col not in df.columns]
             if missing_group_cols:
                 raise ValueError(f"그룹 키 컬럼이 데이터에 존재하지 않습니다: {missing_group_cols}")
         else:
-            # group_key가 단일 문자열인 경우
             if group_key not in df.columns:
                 raise ValueError(f"그룹 키 '{group_key}'가 데이터에 존재하지 않습니다.")
         
         if time_col not in df.columns:
             raise ValueError(f"시간 컬럼 '{time_col}'이 데이터에 존재하지 않습니다.")
         
-        # 타겟 컬럼 검증
         missing_targets = [col for col in y.columns if col not in df.columns]
         if missing_targets:
             raise ValueError(f"타겟 컬럼이 데이터에 존재하지 않습니다: {missing_targets}")
@@ -414,30 +354,25 @@ class Model:
         tasks = []
         for region, group_data in df.groupby(group_key):
             for target in y.columns:
-                tasks.append((region, group_data, target, time_col, future_steps, group_key, self.config, df)) # all_data 추가
+                tasks.append((region, group_data, target, time_col, future_steps, group_key, self.config, df))
 
         print(f"[INFO] 총 {len(tasks)}개 태스크 생성")
 
-        # 멀티프로세싱 실행 (CI/CD 환경에서는 단일 프로세스 사용)
+        # 멀티프로세싱 실행
         results = []
-        
-        # CI/CD 환경 감지 및 안전한 멀티프로세싱
         import os
         is_ci = os.getenv('CI', 'false').lower() == 'true'
         
-        # 안전한 멀티프로세싱을 위한 조건 추가
         import multiprocessing as mp
         if mp.get_start_method(allow_none=True) != 'fork':
             mp.set_start_method('fork', force=True)
         
         if is_ci or len(tasks) <= 1:
-            # CI/CD 환경이거나 태스크가 1개 이하인 경우 단일 프로세스
             print("[INFO] 단일 프로세스 모드로 실행")
             for task in tqdm(tasks, desc="예측 진행", unit="task"):
                 result = process_single_task(task)
                 results.append(result)
         else:
-            # 일반 환경에서는 멀티프로세싱 사용 (안전한 방식)
             n_processes = max(1, min(cpu_count() - 1, len(tasks)))
             print(f"[INFO] 멀티프로세싱 모드로 실행 (프로세스 수: {n_processes})")
             
@@ -449,7 +384,6 @@ class Model:
             except RuntimeError as e:
                 if "bootstrapping phase" in str(e):
                     print("[WARNING] 멀티프로세싱 오류 발생, 단일 프로세스로 전환")
-                    # 멀티프로세싱 실패 시 단일 프로세스로 전환
                     results = []
                     for task in tqdm(tasks, desc="예측 진행 (단일 프로세스)", unit="task"):
                         result = process_single_task(task)
@@ -465,18 +399,18 @@ class Model:
         print("[INFO] 결과를 Wide Format으로 변환 중...")
         wide_format_df = self._convert_to_wide_format(results, group_key, time_col, y.columns)
         
-        # ✅ 3. 원본 데이터 타입으로 복원
+        # 원본 데이터 타입으로 복원
         wide_format_df = self._restore_original_dtypes(wide_format_df)
             
         print(f"[INFO] 예측 완료 - 총 {len(wide_format_df)} rows 생성")
         return wide_format_df
 
     def _restore_original_dtypes(self, df):
-        """원본 데이터 타입으로 복원 - 동적 컬럼 처리"""
+        """원본 데이터 타입으로 복원"""
         print("[INFO] 원본 데이터 타입으로 복원 중...")
         
         df_restored = df.copy()
-        time_col = self.config["prediction"]["time_col"]  # 사용자 설정값
+        time_col = self.config["prediction"]["time_col"]
         
         for col in df_restored.columns:
             if col in self.original_dtypes:
@@ -489,12 +423,11 @@ class Model:
                         print(f"  {col}: {current_dtype} → Int64 (원본: {original_dtype})")
                         
                     elif pd.api.types.is_float_dtype(original_dtype):
-                        # float 타입은 소수점 정밀도 보존
                         df_restored[col] = pd.to_numeric(df_restored[col], errors='coerce').astype('float64')
                         print(f"  {col}: {current_dtype} → float64 (원본: {original_dtype})")
                         
                     elif pd.api.types.is_object_dtype(original_dtype):
-                        if col == time_col:  # ✅ 동적 시간 컬럼 확인
+                        if col == time_col:
                             df_restored[col] = df_restored[col].astype(str)
                         else:
                             df_restored[col] = df_restored[col].astype(str)
@@ -509,13 +442,12 @@ class Model:
                         
                 except Exception as e:
                     print(f"  [WARNING] {col} 타입 복원 실패: {e}")
-                    # ✅ 안전한 기본값 처리 - 문자열로 변환
                     df_restored[col] = df_restored[col].astype(str)
         
         return df_restored
 
     def _convert_to_wide_format(self, results, group_key, time_col, target_columns):
-        """개별 target 결과를 Wide Format으로 병합 - 중복 컬럼 문제 해결"""
+        """개별 target 결과를 Wide Format으로 병합"""
         
         # 유효한 결과만 필터링
         valid_results = []
@@ -534,11 +466,9 @@ class Model:
         # 실제 예측된 결과만 사용하여 기준 프레임 생성
         actual_predictions = []
         for result_df in valid_results:
-            # 예측된 데이터만 추출 (NaN이 아닌 행들)
             target_name = result_df['_target_name'].iloc[0]
             valid_data = result_df.dropna(subset=[target_name])
             if len(valid_data) > 0:
-                # group_key가 리스트인 경우 처리
                 if isinstance(group_key, list):
                     columns_to_select = group_key + [time_col, target_name]
                 else:
@@ -549,7 +479,7 @@ class Model:
             print("[WARNING] 유효한 예측 데이터가 없습니다.")
             return pd.DataFrame()
         
-        # 실제 예측된 조합들만 사용 (각 지역별로 5년 예측)
+        # 실제 예측된 조합들만 사용
         base_df = pd.concat(actual_predictions, ignore_index=True)
         if isinstance(group_key, list):
             columns_to_select = group_key + [time_col]
@@ -561,9 +491,9 @@ class Model:
         print(f"[INFO] 예측 연도 범위: {base_df[time_col].min()} ~ {base_df[time_col].max()}")
         print(f"[INFO] 지역별 예측 건수:")
         region_counts = base_df.groupby(group_key).size()
-        print(region_counts.head(10))  # 상위 10개 지역만 출력
+        print(region_counts.head(10))
 
-        # ✅ Target별로 그룹화하여 중복 제거
+        # Target별로 그룹화하여 중복 제거
         target_results = {}
         for result_df in valid_results:
             target_name = result_df['_target_name'].iloc[0]
@@ -571,7 +501,6 @@ class Model:
             if target_name not in target_results:
                 target_results[target_name] = []
             
-            # 해당 target의 데이터만 추출
             merge_df = result_df.drop(columns=['_target_name']).copy()
             if isinstance(group_key, list):
                 merge_df = merge_df.dropna(subset=group_key + [time_col])
@@ -579,19 +508,17 @@ class Model:
                 merge_df = merge_df.dropna(subset=[group_key, time_col])
             target_results[target_name].append(merge_df)
 
-        # ✅ 각 target별로 먼저 통합한 후 병합
+        # 각 target별로 먼저 통합한 후 병합
         for target_name in target_results:
             print(f"[INFO] {target_name} 처리 중... ({len(target_results[target_name])} 개 결과)")
             
             if len(target_results[target_name]) == 1:
-                # 단일 결과인 경우
                 if isinstance(group_key, list):
                     columns_to_select = group_key + [time_col, target_name]
                 else:
                     columns_to_select = [group_key, time_col, target_name]
                 target_df = target_results[target_name][0][columns_to_select]
             else:
-                # 여러 결과를 통합
                 combined_data = []
                 for df in target_results[target_name]:
                     if target_name in df.columns:
@@ -602,7 +529,6 @@ class Model:
                         combined_data.append(df[columns_to_select])
                 
                 if combined_data:
-                    # 중복 제거하며 통합 (같은 지역-년도는 평균값 사용)
                     target_df = pd.concat(combined_data, ignore_index=True)
                     if isinstance(group_key, list):
                         group_cols = group_key + [time_col]
@@ -614,7 +540,6 @@ class Model:
             
             # 기준 프레임에 병합
             if target_name in base_df.columns:
-                # 이미 존재하는 컬럼인 경우 업데이트
                 base_df = base_df.drop(columns=[target_name])
             
             base_df = base_df.merge(
@@ -625,7 +550,7 @@ class Model:
             
             print(f"[INFO] {target_name} 병합 완료")
 
-        # ✅ 모든 target 컬럼이 존재하는지 확인하고 추가
+        # 모든 target 컬럼이 존재하는지 확인하고 추가
         for target in target_columns:
             if target not in base_df.columns:
                 base_df[target] = np.nan
