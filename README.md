@@ -134,7 +134,7 @@ tfci/
 - requests>=2.25.0
 
 ### tfci-mcp
-- tfci>=1.0.4
+- tfci>=1.0.5
 
 ## 라이선스
 
