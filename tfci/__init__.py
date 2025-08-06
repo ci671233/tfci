@@ -20,6 +20,6 @@ def predict(config_path: str):
     predictor = Predictor(config)
     return predictor.run()
 
-__version__ = "1.0.6"
+__version__ = "2.0.0"
 __author__ = "TFCI Team"
 __email__ = "rosci671233@gmail.com" 
